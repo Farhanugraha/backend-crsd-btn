@@ -42,6 +42,7 @@ class AuthController extends Controller
                 'phone' => $request->phone,
                 'street' => $request->street,
                 'city' => $request->city,
+                'role' => 'user', // Default role untuk user baru
                 'email_verified_at' => now(),
             ]);
 
@@ -56,6 +57,7 @@ class AuthController extends Controller
                         'phone' => $user->phone,
                         'street' => $user->street,
                         'city' => $user->city,
+                        'role' => $user->role,
                         'email_verified_at' => $user->email_verified_at,
                         'created_at' => $user->created_at,
                         'updated_at' => $user->updated_at,
@@ -113,6 +115,7 @@ class AuthController extends Controller
                         'phone' => $user->phone,
                         'street' => $user->street,
                         'city' => $user->city,
+                        'role' => $user->role,
                         'email_verified_at' => $user->email_verified_at,
                     ],
                     'token' => $token,
@@ -175,6 +178,7 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'street' => $user->street,
                     'city' => $user->city,
+                    'role' => $user->role,
                     'email_verified_at' => $user->email_verified_at,
                     'created_at' => $user->created_at,
                     'updated_at' => $user->updated_at,
@@ -279,6 +283,7 @@ class AuthController extends Controller
                     'phone' => $user->phone,
                     'street' => $user->street,
                     'city' => $user->city,
+                    'role' => $user->role,
                     'email_verified_at' => $user->email_verified_at,
                     'updated_at' => $user->updated_at,
                 ]
