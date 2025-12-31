@@ -123,7 +123,7 @@ class AdminController extends Controller
             'name' => 'sometimes|required|string|max:255',
             'email' => 'sometimes|required|email|unique:users,email,' . $id,
             'phone' => 'nullable|string|max:20',
-            'city' => 'nullable|string|max:100',
+            'unit_kerja' => 'nullable|string|max:100',
         ]);
 
 
@@ -144,8 +144,8 @@ class AdminController extends Controller
             if ($request->has('phone')) {
                 $user->phone = $request->phone;
             }
-            if ($request->has('city')) {
-                $user->city = $request->city;
+            if ($request->has('unit_kerja')) {
+                $user->unit_kerja = $request->unit_kerja;
             }
 
             $user->save();

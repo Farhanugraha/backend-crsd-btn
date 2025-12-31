@@ -13,7 +13,7 @@ return [
     |
     */
 
-     'defaults' => [
+    'defaults' => [
     'guard' => 'api',
     'passwords' => 'users',
     ],
@@ -34,7 +34,7 @@ return [
     |
     */
 
-     'guards' => [
+    'guards' => [
     'web' => [
         'driver' => 'session',
         'provider' => 'users',
@@ -115,5 +115,7 @@ return [
     */
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
+    'frontend_reset_password_url' => env('FRONTEND_RESET_PASSWORD_URL'),
+
 
 ];
