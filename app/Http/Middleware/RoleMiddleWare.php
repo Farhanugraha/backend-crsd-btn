@@ -1,9 +1,5 @@
 <?php
-// 1. RoleMiddleware
-// File: app/Http/Middleware/RoleMiddleware.php
-
 namespace App\Http\Middleware;
-
 use Closure;
 use Illuminate\Http\Request;
 
@@ -17,24 +13,24 @@ class RoleMiddleware
                 'message' => 'Unauthorized - User not authenticated'
             ], 401);
         }
-
-        // Jika role superadmin, boleh akses semua
-        if ($request->user()->role === 'superadmin') {
+        
+        $roles = explode('|', $role);
+        $userRole = $request->user()->role;
+        
+        if ($userRole === 'superadmin') {
             return $next($request);
         }
-
-        // Jika role tidak sesuai
-        if ($request->user()->role !== $role) {
+        
+   
+        if (!in_array($userRole, $roles)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Forbidden - Insufficient role',
-                'user_role' => $request->user()->role,
+                'user_role' => $userRole,
                 'required_role' => $role
             ], 403);
         }
-
+        
         return $next($request);
     }
 }
-
-?>

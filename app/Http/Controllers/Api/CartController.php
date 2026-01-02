@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cart;
-use App\Models\Carts_Items;
+use App\Models\CartItem;
 use App\Models\Menu;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -73,7 +73,7 @@ class CartController extends Controller
             );
 
             // Check if item already in cart
-            $cartItem = Carts_Items::where('cart_id', $cart->id)
+            $cartItem = CartItem::where('cart_id', $cart->id)
                 ->where('menu_id', $request->menu_id)
                 ->first();
 
@@ -81,7 +81,7 @@ class CartController extends Controller
                 $cartItem->quantity += $request->quantity;
                 $cartItem->save();
             } else {
-                Carts_Items::create([
+                CartItem::create([
                     'cart_id' => $cart->id,
                     'menu_id' => $request->menu_id,
                     'quantity' => $request->quantity,
@@ -121,7 +121,7 @@ class CartController extends Controller
                 ], 422);
             }
 
-            $cartItem = Carts_Items::find($cartItemId);
+            $cartItem = CartItem::find($cartItemId);
 
             if (!$cartItem) {
                 return response()->json([
@@ -153,7 +153,7 @@ class CartController extends Controller
     public function removeItem($cartItemId)
     {
         try {
-            $cartItem = Carts_Items::find($cartItemId);
+            $cartItem = CartItem::find($cartItemId);
 
             if (!$cartItem) {
                 return response()->json([

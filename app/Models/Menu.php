@@ -16,7 +16,7 @@ class Menu extends Model
 
     public function cartItems(): HasMany
     {
-        return $this->hasMany(Carts_Items::class);
+        return $this->hasMany(CartItem::class);
     }
 
     public function orderItems(): HasMany

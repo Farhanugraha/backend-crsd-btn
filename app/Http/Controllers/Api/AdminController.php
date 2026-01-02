@@ -1,6 +1,4 @@
 <?php
-// AdminController
-// File: app/Http/Controllers/Api/AdminController.php
 
 namespace App\Http\Controllers\Api;
 
