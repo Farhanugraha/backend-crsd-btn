@@ -31,7 +31,7 @@ class CartController extends Controller
     }
 
     /**
-     * Add item to cart
+     * Add item to cart with optional notes
      */
     public function addItem(Request $request)
     {
@@ -40,7 +40,8 @@ class CartController extends Controller
         $validator = Validator::make($request->all(), [
             'menu_id' => 'required|exists:menus,id',
             'restaurant_id' => 'required|exists:restaurants,id',
-            'quantity' => 'required|integer|min:1'
+            'quantity' => 'required|integer|min:1',
+            'notes' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -65,12 +66,17 @@ class CartController extends Controller
 
             if ($item) {
                 $item->increment('quantity', $request->quantity);
+                // Update notes jika ada
+                if ($request->has('notes')) {
+                    $item->update(['notes' => $request->notes]);
+                }
             } else {
                 CartItem::create([
                     'cart_id' => $cart->id,
                     'menu_id' => $menu->id,
                     'quantity' => $request->quantity,
-                    'price' => $menu->price
+                    'price' => $menu->price,
+                    'notes' => $request->notes ?? null
                 ]);
             }
         });
@@ -82,14 +88,15 @@ class CartController extends Controller
     }
 
     /**
-     * Update cart item quantity
+     * Update cart item quantity and notes
      */
     public function updateItem(Request $request, $id)
     {
         $user = JWTAuth::parseToken()->authenticate();
 
         $validator = Validator::make($request->all(), [
-            'quantity' => 'required|integer|min:1'
+            'quantity' => 'required|integer|min:1',
+            'notes' => 'nullable|string'
         ]);
 
         if ($validator->fails()) {
@@ -103,7 +110,10 @@ class CartController extends Controller
             $q->where('user_id', $user->id);
         })->findOrFail($id);
 
-        $item->update(['quantity' => $request->quantity]);
+        $item->update([
+            'quantity' => $request->quantity,
+            'notes' => $request->notes ?? $item->notes
+        ]);
 
         return response()->json([
             'success' => true,
