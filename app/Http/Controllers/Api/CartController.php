@@ -9,38 +9,25 @@ use App\Models\Menu;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class CartController extends Controller
 {
     /**
-     * Get user cart
+     * Get all user carts
      */
     public function getCart()
     {
-        try {
-            $user = JWTAuth::parseToken()->authenticate();
-            $cart = Cart::with('items.menu')->where('user_id', $user->id)->first();
+        $user = JWTAuth::parseToken()->authenticate();
 
-            if (!$cart) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Cart is empty',
-                    'data' => null
-                ], 200);
-            }
+        $carts = Cart::with('items.menu')
+            ->where('user_id', $user->id)
+            ->get();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Cart retrieved successfully',
-                'data' => $cart
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve cart',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'data' => $carts
+        ]);
     }
 
     /**
@@ -48,133 +35,99 @@ class CartController extends Controller
      */
     public function addItem(Request $request)
     {
-        try {
-            $user = JWTAuth::parseToken()->authenticate();
+        $user = JWTAuth::parseToken()->authenticate();
 
-            $validator = Validator::make($request->all(), [
-                'menu_id' => 'required|exists:menus,id',
-                'restaurant_id' => 'required|exists:restaurants,id',
-                'quantity' => 'required|integer|min:1'
+        $validator = Validator::make($request->all(), [
+            'menu_id' => 'required|exists:menus,id',
+            'restaurant_id' => 'required|exists:restaurants,id',
+            'quantity' => 'required|integer|min:1'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        DB::transaction(function () use ($request, $user) {
+
+            $menu = Menu::findOrFail($request->menu_id);
+
+            $cart = Cart::firstOrCreate([
+                'user_id' => $user->id,
+                'restaurant_id' => $request->restaurant_id
             ]);
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation error',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $menu = Menu::find($request->menu_id);
-            
-            // Get or create cart for user and restaurant
-            $cart = Cart::firstOrCreate(
-                ['user_id' => $user->id, 'restaurant_id' => $request->restaurant_id]
-            );
-
-            // Check if item already in cart
-            $cartItem = CartItem::where('cart_id', $cart->id)
-                ->where('menu_id', $request->menu_id)
+            $item = CartItem::where('cart_id', $cart->id)
+                ->where('menu_id', $menu->id)
                 ->first();
 
-            if ($cartItem) {
-                $cartItem->quantity += $request->quantity;
-                $cartItem->save();
+            if ($item) {
+                $item->increment('quantity', $request->quantity);
             } else {
                 CartItem::create([
                     'cart_id' => $cart->id,
-                    'menu_id' => $request->menu_id,
+                    'menu_id' => $menu->id,
                     'quantity' => $request->quantity,
                     'price' => $menu->price
                 ]);
             }
+        });
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Item added to cart successfully',
-                'data' => $cart->load('items.menu')
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to add item to cart',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'Item added to cart'
+        ], 201);
     }
 
     /**
      * Update cart item quantity
      */
-    public function updateItem(Request $request, $cartItemId)
+    public function updateItem(Request $request, $id)
     {
-        try {
-            $validator = Validator::make($request->all(), [
-                'quantity' => 'required|integer|min:1'
-            ]);
+        $user = JWTAuth::parseToken()->authenticate();
 
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation error',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
+        $validator = Validator::make($request->all(), [
+            'quantity' => 'required|integer|min:1'
+        ]);
 
-            $cartItem = CartItem::find($cartItemId);
-
-            if (!$cartItem) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cart item not found'
-                ], 404);
-            }
-
-            $cartItem->quantity = $request->quantity;
-            $cartItem->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Cart item updated successfully',
-                'data' => $cartItem
-            ], 200);
-        } catch (\Exception $e) {
+        if ($validator->fails()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update cart item',
-                'error' => $e->getMessage()
-            ], 500);
+                'errors' => $validator->errors()
+            ], 422);
         }
+
+        $item = CartItem::whereHas('cart', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+        })->findOrFail($id);
+
+        $item->update(['quantity' => $request->quantity]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cart item updated'
+        ]);
     }
 
     /**
      * Remove item from cart
      */
-    public function removeItem($cartItemId)
+    public function removeItem($id)
     {
-        try {
-            $cartItem = CartItem::find($cartItemId);
+        $user = JWTAuth::parseToken()->authenticate();
 
-            if (!$cartItem) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cart item not found'
-                ], 404);
-            }
+        $item = CartItem::whereHas('cart', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+        })->findOrFail($id);
 
-            $cartItem->delete();
+        $item->delete();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Item removed from cart successfully'
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to remove item from cart',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'Item removed'
+        ]);
     }
 
     /**
@@ -182,20 +135,15 @@ class CartController extends Controller
      */
     public function clearCart()
     {
-        try {
-            $user = JWTAuth::parseToken()->authenticate();
-            Cart::where('user_id', $user->id)->delete();
+        $user = JWTAuth::parseToken()->authenticate();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Cart cleared successfully'
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to clear cart',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        Cart::where('user_id', $user->id)->each(function ($cart) {
+            $cart->items()->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cart cleared'
+        ]);
     }
 }

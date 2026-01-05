@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Orders extends Model
 {
+    protected $table = 'orders';
     protected $fillable = ['user_id','order_code', 'restaurant_id', 'total_price', 'status'];
 
     public function user(): BelongsTo
@@ -23,7 +24,7 @@ class Orders extends Model
 
     public function items(): HasMany
     {
-        return $this->hasMany(OrderItem::class);
+        return $this->hasMany(OrderItem::class, 'order_id', 'id');
     }
 
     public function payment(): HasOne
