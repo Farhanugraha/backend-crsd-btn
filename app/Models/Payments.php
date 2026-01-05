@@ -7,7 +7,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Payments extends Model
 {
-     protected $fillable = ['order_id', 'payment_method', 'payment_status', 'transaction_id'];
+    protected $table = 'payments';
+    
+    protected $fillable = [
+        'order_id', 
+        'payment_method', 
+        'payment_status', 
+        'transaction_id',
+        'proof_image',      
+        'payment_notes',    
+        'paid_at'           
+    ];
+
+    protected $casts = [
+        'paid_at' => 'datetime'
+    ];
 
     public function order(): BelongsTo
     {

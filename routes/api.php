@@ -106,7 +106,7 @@ Route::prefix('auth')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('restaurants')->group(function () {
-    // Public routes - siapa saja bisa lihat
+    // Public routes 
     Route::get('', [RestaurantController::class, 'index']);
     Route::get('{id}', [RestaurantController::class, 'show']);
     
@@ -124,7 +124,7 @@ Route::prefix('restaurants')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('menus')->group(function () {
-    // Public routes - siapa saja bisa lihat
+    // Public routes 
     Route::get('restaurant/{restaurantId}', [MenuController::class, 'index']);
     Route::get('{id}', [MenuController::class, 'show']);
     
@@ -164,7 +164,7 @@ Route::prefix('orders')
         Route::post('', [OrdersController::class, 'store']);
         Route::post('{id}/cancel', [OrdersController::class, 'cancel']);
 
-         // Edit notes if status pending / before payment
+        // Edit notes if status pending / before payment
         Route::put('{id}/notes', [OrdersController::class, 'updateNotes']);
         Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes']);
     });
@@ -178,12 +178,13 @@ Route::prefix('payments')
     ->middleware(['auth:api', 'role:user'])  
     ->group(function () {
         Route::get('orders/{orderId}', [PaymentsController::class, 'show']);
-        Route::post('orders/{orderId}/process', [PaymentsController::class, 'process']);
+        Route::post('orders/{orderId}/initiate', [PaymentsController::class, 'initiate']);
+        Route::post('orders/{orderId}/upload-proof', [PaymentsController::class, 'uploadProof']);
     });
 
 /*
 |--------------------------------------------------------------------------
-| ADMIN ROUTES - LIHAT ORDERS & DASHBOARD
+| ADMIN ROUTES - LIHAT ORDERS, PAYMENTS & DASHBOARD
 |--------------------------------------------------------------------------
 */
 Route::prefix('admin')
@@ -191,6 +192,8 @@ Route::prefix('admin')
     ->group(function () {
         Route::get('dashboard', [AdminController::class, 'dashboard']);
         Route::get('orders', [OrdersController::class, 'getAllOrders']);
+        Route::get('payments', [PaymentsController::class, 'getAllPayments']);
+        Route::put('payments/{paymentId}/confirm', [PaymentsController::class, 'confirmPayment']);
     });
 
 /*
