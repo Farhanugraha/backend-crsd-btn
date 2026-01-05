@@ -3,14 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\Cart;
-use App\Models\CartItem;
-use App\Models\Carts_Items;
-use App\Models\Order_Items;
 use App\Models\Orders;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use Illuminate\Support\Facades\DB;
 
 class OrdersController extends Controller
 {
@@ -19,25 +18,18 @@ class OrdersController extends Controller
      */
     public function index()
     {
-        try {
-            $user = JWTAuth::parseToken()->authenticate();
-            $orders = Orders::where('user_id', $user->id)
-                ->with('items.menu', 'restaurant', 'payment')
-                ->orderBy('created_at', 'desc')
-                ->get();
+        $user = JWTAuth::parseToken()->authenticate();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Orders retrieved successfully',
-                'data' => $orders
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve orders',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        $orders = Orders::with('items.menu')
+            ->where('user_id', $user->id)
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Orders retrieved successfully',
+            'data' => $orders
+        ]);
     }
 
     /**
@@ -45,85 +37,90 @@ class OrdersController extends Controller
      */
     public function show($id)
     {
-        try {
-            $user = JWTAuth::parseToken()->authenticate();
-            $order = Orders::where('user_id', $user->id)
-                ->with('items.menu', 'restaurant', 'payment')
-                ->find($id);
+        $user = JWTAuth::parseToken()->authenticate();
 
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found'
-                ], 404);
-            }
+        $order = Orders::with('items.menu')
+            ->where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Order retrieved successfully',
-                'data' => $order
-            ], 200);
-        } catch (\Exception $e) {
+        if (!$order) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to retrieve order',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'Order not found'
+            ], 404);
         }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order detail retrieved',
+            'data' => $order
+        ]);
     }
 
     /**
-     * Create order from cart
+     * Create order from cart (CHECKOUT)
      */
-    public function store(Request $request)
+    public function store()
     {
+        $user = JWTAuth::parseToken()->authenticate();
+
+        $cart = Cart::with('items.menu')
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$cart || $cart->items->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cart is empty'
+            ], 400);
+        }
+
+        DB::beginTransaction();
+
         try {
-            $user = JWTAuth::parseToken()->authenticate();
-
-            // Get cart
-            $cart = Cart::where('user_id', $user->id)->first();
-
-            if (!$cart || $cart->items->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cart is empty'
-                ], 400);
-            }
+            // Generate order code
+            $orderCode = 'ORD-' . now()->format('YmdHis');
 
             // Calculate total price
-            $totalPrice = 0;
-            foreach ($cart->items as $item) {
-                $totalPrice += $item->price * $item->quantity;
-            }
+            $totalPrice = $cart->items->sum(function ($item) {
+                return $item->price * $item->quantity;
+            });
 
             // Create order
             $order = Orders::create([
-                'user_id' => $user->id,
+                'order_code'     => $orderCode,
+                'user_id'        => $user->id,
                 'restaurant_id' => $cart->restaurant_id,
-                'total_price' => $totalPrice,
-                'status' => 'pending'
+                'total_price'   => $totalPrice,
+                'status'        => 'pending',
             ]);
 
-            // Transfer cart items to order items
-            foreach ($cart->items as $cartItem) {
-                Order_Items::create([
+            // Move cart items to order items
+            foreach ($cart->items as $item) {
+                OrderItem::create([
                     'order_id' => $order->id,
-                    'menu_id' => $cartItem->menu_id,
-                    'quantity' => $cartItem->quantity,
-                    'price' => $cartItem->price
+                    'menu_id'  => $item->menu_id,
+                    'quantity' => $item->quantity,
+                    'price'    => $item->price,
                 ]);
             }
 
             // Clear cart
-            CartItem::where('cart_id', $cart->id)->delete();
+            $cart->items()->delete();
             $cart->delete();
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Order created successfully',
-                'data' => $order->load('items.menu', 'restaurant')
+                'data' => $order->load('items.menu')
             ], 201);
+
         } catch (\Exception $e) {
+            DB::rollBack();
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create order',
@@ -133,118 +130,51 @@ class OrdersController extends Controller
     }
 
     /**
-     * Cancel order (only pending orders)
+     * Cancel order
      */
     public function cancel($id)
     {
-        try {
-            $user = JWTAuth::parseToken()->authenticate();
-            $order = Orders::where('user_id', $user->id)->find($id);
+        $user = JWTAuth::parseToken()->authenticate();
 
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found'
-                ], 404);
-            }
+        $order = Orders::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
 
-            if ($order->status !== 'pending') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Can only cancel pending orders'
-                ], 400);
-            }
-
-            $order->status = 'canceled';
-            $order->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Order canceled successfully',
-                'data' => $order
-            ], 200);
-        } catch (\Exception $e) {
+        if (!$order) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to cancel order',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'Order not found'
+            ], 404);
         }
+
+        if ($order->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only pending orders can be canceled'
+            ], 400);
+        }
+
+        $order->update(['status' => 'canceled']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order canceled successfully'
+        ]);
     }
 
     /**
-     * Get all orders (admin only)
+     * Admin get all orders
      */
-    public function getAllOrders(Request $request)
+    public function getAllOrders()
     {
-        try {
-            $page = $request->get('page', 1);
-            $perPage = $request->get('per_page', 10);
-            $status = $request->get('status');
+        $orders = Orders::with('user', 'restaurant', 'items.menu')
+            ->latest()
+            ->get();
 
-            $query = Orders::with('user', 'restaurant', 'items.menu', 'payment');
-
-            if ($status) {
-                $query->where('status', $status);
-            }
-
-            $orders = $query->paginate($perPage, ['*'], 'page', $page);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'All orders retrieved successfully',
-                'data' => $orders
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve orders',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Update order status (admin only)
-     */
-    public function updateStatus(Request $request, $id)
-    {
-        try {
-            $validator = Validator::make($request->all(), [
-                'status' => 'required|in:pending,paid,canceled'
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation error',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $order = Orders::find($id);
-
-            if (!$order) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Order not found'
-                ], 404);
-            }
-
-            $order->status = $request->status;
-            $order->save();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Order status updated successfully',
-                'data' => $order
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update order status',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'All orders retrieved',
+            'data' => $orders
+        ]);
     }
 }

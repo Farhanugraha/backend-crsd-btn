@@ -142,7 +142,7 @@ Route::prefix('menus')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('cart')
-    ->middleware(['auth:api', 'role:user'])  // ✅ TAMBAHKAN ROLE
+    ->middleware(['auth:api', 'role:user'])  
     ->group(function () {
         Route::get('', [CartController::class, 'getCart']);
         Route::post('add-item', [CartController::class, 'addItem']);
@@ -157,7 +157,7 @@ Route::prefix('cart')
 |--------------------------------------------------------------------------
 */
 Route::prefix('orders')
-    ->middleware(['auth:api', 'role:user'])  // ✅ TAMBAHKAN ROLE
+    ->middleware(['auth:api', 'role:user']) 
     ->group(function () {
         Route::get('', [OrdersController::class, 'index']);
         Route::get('{id}', [OrdersController::class, 'show']);
@@ -171,7 +171,7 @@ Route::prefix('orders')
 |--------------------------------------------------------------------------
 */
 Route::prefix('payments')
-    ->middleware(['auth:api', 'role:user'])  // ✅ TAMBAHKAN ROLE
+    ->middleware(['auth:api', 'role:user'])  
     ->group(function () {
         Route::get('orders/{orderId}', [PaymentsController::class, 'show']);
         Route::post('orders/{orderId}/process', [PaymentsController::class, 'process']);
@@ -183,7 +183,7 @@ Route::prefix('payments')
 |--------------------------------------------------------------------------
 */
 Route::prefix('admin')
-    ->middleware(['auth:api', 'role:admin|superadmin'])  // ✅ TAMBAHKAN |superadmin
+    ->middleware(['auth:api', 'role:admin|superadmin'])  
     ->group(function () {
         Route::get('dashboard', [AdminController::class, 'dashboard']);
         Route::get('orders', [OrdersController::class, 'getAllOrders']);

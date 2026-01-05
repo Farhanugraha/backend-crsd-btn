@@ -5,14 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class CartItem extends Model
+class OrderItem extends Model
 {
-    protected $table = 'carts_items'; 
-    protected $fillable = ['cart_id', 'menu_id', 'quantity', 'price'];
+    protected $fillable = ['order_id', 'menu_id', 'quantity', 'price'];
 
-    public function cart(): BelongsTo
+    public function order(): BelongsTo
     {
-        return $this->belongsTo(Cart::class);
+        return $this->belongsTo(Orders::class);
     }
 
     public function menu(): BelongsTo
