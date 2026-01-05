@@ -163,6 +163,10 @@ Route::prefix('orders')
         Route::get('{id}', [OrdersController::class, 'show']);
         Route::post('', [OrdersController::class, 'store']);
         Route::post('{id}/cancel', [OrdersController::class, 'cancel']);
+
+         // Edit notes if status pending / before payment
+        Route::put('{id}/notes', [OrdersController::class, 'updateNotes']);
+        Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes']);
     });
 
 /*

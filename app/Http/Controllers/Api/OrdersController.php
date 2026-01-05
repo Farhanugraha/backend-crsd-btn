@@ -60,8 +60,12 @@ class OrdersController extends Controller
     /**
      * Create order from cart (CHECKOUT)
      */
-    public function store()
+    public function store(Request $request)
     {
+        $validated = $request->validate([
+            'notes' => 'nullable|string|max:500'
+        ]);
+
         $user = JWTAuth::parseToken()->authenticate();
 
         $cart = Cart::with('items.menu')
@@ -86,13 +90,14 @@ class OrdersController extends Controller
                 return $item->price * $item->quantity;
             });
 
-            // Create order
+            // Create order WITH notes
             $order = Orders::create([
                 'order_code'     => $orderCode,
                 'user_id'        => $user->id,
-                'restaurant_id' => $cart->restaurant_id,
-                'total_price'   => $totalPrice,
-                'status'        => 'pending',
+                'restaurant_id'  => $cart->restaurant_id,
+                'total_price'    => $totalPrice,
+                'status'         => 'pending',
+                'notes'          => $validated['notes'] ?? null
             ]);
 
             // Move cart items to order items
@@ -102,6 +107,7 @@ class OrdersController extends Controller
                     'menu_id'  => $item->menu_id,
                     'quantity' => $item->quantity,
                     'price'    => $item->price,
+                    'notes'    => $item->notes
                 ]);
             }
 
@@ -126,6 +132,93 @@ class OrdersController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Update order notes (hanya untuk pending)
+     */
+    public function updateNotes(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'notes' => 'nullable|string|max:500'
+        ]);
+
+        $user = JWTAuth::parseToken()->authenticate();
+
+        $order = Orders::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found'
+            ], 404);
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only pending orders can be edited'
+            ], 400);
+        }
+
+        $order->update(['notes' => $validated['notes']]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order notes updated',
+            'data' => $order
+        ]);
+    }
+
+    /**
+     * Update order item notes (hanya untuk pending order)
+     */
+    public function updateItemNotes(Request $request, $id, $itemId)
+    {
+        $validated = $request->validate([
+            'notes' => 'nullable|string|max:500'
+        ]);
+
+        $user = JWTAuth::parseToken()->authenticate();
+
+        $order = Orders::where('id', $id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found'
+            ], 404);
+        }
+
+        if ($order->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only pending orders can be edited'
+            ], 400);
+        }
+
+        $item = OrderItem::where('id', $itemId)
+            ->where('order_id', $order->id)
+            ->first();
+
+        if (!$item) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Item not found'
+            ], 404);
+        }
+
+        $item->update(['notes' => $validated['notes']]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Item notes updated',
+            'data' => $item
+        ]);
     }
 
     /**
