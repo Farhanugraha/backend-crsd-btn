@@ -7,16 +7,13 @@ use Illuminate\Support\ServiceProvider;
 
 class AuthServiceProvider extends ServiceProvider
 {
-    /**
-     * Bootstrap services.
-     */
-
     public function boot()
-{
-    ResetPassword::createUrlUsing(function ($user, string $token) {
-        return config('app.frontend_reset_password_url')
-            . "?token={$token}&email={$user->email}";
-    });
-}
-   
+    {
+        ResetPassword::createUrlUsing(function ($user, string $token) {
+            $resetUrl = config('auth.frontend_reset_password_url');
+            $email = urlencode($user->email);
+            
+            return "{$resetUrl}?token={$token}&email={$email}";
+        });
+    }
 }

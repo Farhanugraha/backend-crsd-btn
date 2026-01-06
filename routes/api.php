@@ -16,51 +16,27 @@ use App\Models\User;
 
 /*
 |--------------------------------------------------------------------------
-| LOGIN FALLBACK ROUTE (UNTUK API)
-|--------------------------------------------------------------------------
-*/
-Route::get('login', function () {
-    return response()->json([
-        'success' => false,
-        'message' => 'Unauthenticated - Please login first'
-    ], 401);
-})->name('login');
-
-/*
-|--------------------------------------------------------------------------
-| EMAIL VERIFICATION (PUBLIC)
+| EMAIL VERIFICATION
 |--------------------------------------------------------------------------
 */
 Route::get('/email/verify/{id}/{hash}', function ($id, $hash) {
     $user = User::find($id);
 
     if (! $user) {
-        return response()->json([
-            'success' => false,
-            'message' => 'User tidak ditemukan'
-        ], 404);
+        return redirect(env('FRONTEND_URL') . '/email-verification?success=false&message=User%20not%20found');
     }
 
     if (! hash_equals(sha1($user->email), $hash)) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Link verifikasi tidak valid'
-        ], 400);
+        return redirect(env('FRONTEND_URL') . '/email-verification?success=false&message=Invalid%20link');
     }
 
     if ($user->hasVerifiedEmail()) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Email sudah diverifikasi'
-        ], 400);
+        return redirect(env('FRONTEND_URL') . '/email-verification?success=true&message=Already%20verified');
     }
 
     $user->markEmailAsVerified();
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Email berhasil diverifikasi'
-    ]);
+    return redirect(env('FRONTEND_URL') . '/email-verification?success=true&message=Email%20verified%20successfully');
 })->name('verification.verify');
 
 /*
@@ -69,13 +45,13 @@ Route::get('/email/verify/{id}/{hash}', function ($id, $hash) {
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
-    // Public Auth
+    // Public Auth Routes
     Route::post('register', [AuthController::class, 'register']);
     Route::post('login', [AuthController::class, 'login']);
     Route::post('forgot-password', [ForgotPasswordController::class, 'sendResetLinkEmail']);
     Route::post('reset-password', [ResetPasswordController::class, 'reset']);
 
-    // Authenticated
+    // Protected Auth Routes
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
@@ -102,15 +78,13 @@ Route::prefix('auth')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| RESTAURANT ROUTES (PUBLIC READ + SUPERADMIN WRITE)
+| PUBLIC RESTAURANT & MENU ROUTES
 |--------------------------------------------------------------------------
 */
 Route::prefix('restaurants')->group(function () {
-    // Public routes 
     Route::get('', [RestaurantController::class, 'index']);
     Route::get('{id}', [RestaurantController::class, 'show']);
     
-    // SuperAdmin only
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [RestaurantController::class, 'store']);
         Route::put('{id}', [RestaurantController::class, 'update']);
@@ -118,17 +92,10 @@ Route::prefix('restaurants')->group(function () {
     });
 });
 
-/*
-|--------------------------------------------------------------------------
-| MENU ROUTES (PUBLIC READ + SUPERADMIN WRITE)
-|--------------------------------------------------------------------------
-*/
 Route::prefix('menus')->group(function () {
-    // Public routes 
     Route::get('restaurant/{restaurantId}', [MenuController::class, 'index']);
     Route::get('{id}', [MenuController::class, 'show']);
     
-    // SuperAdmin only
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [MenuController::class, 'store']);
         Route::put('{id}', [MenuController::class, 'update']);
@@ -138,80 +105,54 @@ Route::prefix('menus')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| CART ROUTES (USER ONLY)
+| USER ROUTES
 |--------------------------------------------------------------------------
 */
-Route::prefix('cart')
-    ->middleware(['auth:api', 'role:user'])  
-    ->group(function () {
-        Route::get('', [CartController::class, 'getCart']);
-        Route::post('add-item', [CartController::class, 'addItem']);
-        Route::put('items/{cartItemId}', [CartController::class, 'updateItem']);
-        Route::delete('items/{cartItemId}', [CartController::class, 'removeItem']);
-        Route::delete('clear', [CartController::class, 'clearCart']);
-    });
+Route::prefix('cart')->middleware(['auth:api', 'role:user'])->group(function () {
+    Route::get('', [CartController::class, 'getCart']);
+    Route::post('add-item', [CartController::class, 'addItem']);
+    Route::put('items/{cartItemId}', [CartController::class, 'updateItem']);
+    Route::delete('items/{cartItemId}', [CartController::class, 'removeItem']);
+    Route::delete('clear', [CartController::class, 'clearCart']);
+});
+
+Route::prefix('orders')->middleware(['auth:api', 'role:user'])->group(function () {
+    Route::get('', [OrdersController::class, 'index']);
+    Route::get('{id}', [OrdersController::class, 'show']);
+    Route::post('', [OrdersController::class, 'store']);
+    Route::post('{id}/cancel', [OrdersController::class, 'cancel']);
+    Route::put('{id}/notes', [OrdersController::class, 'updateNotes']);
+    Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes']);
+});
+
+Route::prefix('payments')->middleware(['auth:api', 'role:user'])->group(function () {
+    Route::get('orders/{orderId}', [PaymentsController::class, 'show']);
+    Route::post('orders/{orderId}/initiate', [PaymentsController::class, 'initiate']);
+    Route::post('orders/{orderId}/upload-proof', [PaymentsController::class, 'uploadProof']);
+});
 
 /*
 |--------------------------------------------------------------------------
-| ORDER ROUTES (USER)
+| ADMIN ROUTES
 |--------------------------------------------------------------------------
 */
-Route::prefix('orders')
-    ->middleware(['auth:api', 'role:user']) 
-    ->group(function () {
-        Route::get('', [OrdersController::class, 'index']);
-        Route::get('{id}', [OrdersController::class, 'show']);
-        Route::post('', [OrdersController::class, 'store']);
-        Route::post('{id}/cancel', [OrdersController::class, 'cancel']);
-
-        // Edit notes if status pending / before payment
-        Route::put('{id}/notes', [OrdersController::class, 'updateNotes']);
-        Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes']);
-    });
+Route::prefix('admin')->middleware(['auth:api', 'role:admin,superadmin'])->group(function () {
+    Route::get('dashboard', [AdminController::class, 'dashboard']);
+    Route::get('orders', [OrdersController::class, 'getAllOrders']);
+    Route::get('payments', [PaymentsController::class, 'getAllPayments']);
+    Route::put('payments/{paymentId}/confirm', [PaymentsController::class, 'confirmPayment']);
+});
 
 /*
 |--------------------------------------------------------------------------
-| PAYMENT ROUTES (USER)
+| SUPERADMIN ROUTES
 |--------------------------------------------------------------------------
 */
-Route::prefix('payments')
-    ->middleware(['auth:api', 'role:user'])  
-    ->group(function () {
-        Route::get('orders/{orderId}', [PaymentsController::class, 'show']);
-        Route::post('orders/{orderId}/initiate', [PaymentsController::class, 'initiate']);
-        Route::post('orders/{orderId}/upload-proof', [PaymentsController::class, 'uploadProof']);
-    });
-
-/*
-|--------------------------------------------------------------------------
-| ADMIN ROUTES - LIHAT ORDERS, PAYMENTS & DASHBOARD
-|--------------------------------------------------------------------------
-*/
-Route::prefix('admin')
-    ->middleware(['auth:api', 'role:admin|superadmin'])  
-    ->group(function () {
-        Route::get('dashboard', [AdminController::class, 'dashboard']);
-        Route::get('orders', [OrdersController::class, 'getAllOrders']);
-        Route::get('payments', [PaymentsController::class, 'getAllPayments']);
-        Route::put('payments/{paymentId}/confirm', [PaymentsController::class, 'confirmPayment']);
-    });
-
-/*
-|--------------------------------------------------------------------------
-| SUPERADMIN ROUTES - FULL AKSES
-|--------------------------------------------------------------------------
-*/
-Route::prefix('superadmin')
-    ->middleware(['auth:api', 'role:superadmin'])
-    ->group(function () {
-        Route::get('dashboard', [SuperAdminController::class, 'dashboard']);
-        
-        // User Management
-        Route::get('users', [SuperAdminController::class, 'listAllUsers']);
-        Route::post('users/{id}/role', [SuperAdminController::class, 'changeUserRole']);
-        Route::delete('users/{id}', [SuperAdminController::class, 'deleteUser']);
-        
-        // Settings
-        Route::get('settings', [SuperAdminController::class, 'getSettings']);
-        Route::post('settings', [SuperAdminController::class, 'updateSettings']);
-    });
+Route::prefix('superadmin')->middleware(['auth:api', 'role:superadmin'])->group(function () {
+    Route::get('dashboard', [SuperAdminController::class, 'dashboard']);
+    Route::get('users', [SuperAdminController::class, 'listAllUsers']);
+    Route::post('users/{id}/role', [SuperAdminController::class, 'changeUserRole']);
+    Route::delete('users/{id}', [SuperAdminController::class, 'deleteUser']);
+    Route::get('settings', [SuperAdminController::class, 'getSettings']);
+    Route::post('settings', [SuperAdminController::class, 'updateSettings']);
+});
