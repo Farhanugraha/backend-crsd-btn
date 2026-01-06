@@ -17,7 +17,6 @@ return new class extends Migration
             $table->foreignId('menu_id')->constrained('menus')->onDelete('cascade');
             $table->integer('quantity');
             $table->decimal('price', 10, 2)->comment('harga saat ditambahkan');
-            $table->text('notes')->nullable();
             $table->timestamps();
         });
     }
