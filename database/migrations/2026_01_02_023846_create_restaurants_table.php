@@ -6,24 +6,25 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('restaurants', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('area_id');
             $table->string('name');
             $table->text('description')->nullable();
             $table->string('address');
             $table->boolean('is_open')->default(true);
             $table->timestamps();
+            
+            // Foreign key ditambahkan setelah tabel dibuat
+            $table->foreign('area_id')
+                ->references('id')
+                ->on('areas')
+                ->onDelete('cascade');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('restaurants');
