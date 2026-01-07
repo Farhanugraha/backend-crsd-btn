@@ -14,13 +14,20 @@ use Illuminate\Support\Facades\DB;
 class CartController extends Controller
 {
     /**
-     * Get all user carts
+     * Get all user carts with restaurant data
+     * Only return carts that have items
      */
     public function getCart()
     {
         $user = JWTAuth::parseToken()->authenticate();
 
-        $carts = Cart::with('items.menu')
+        // Delete empty carts first
+        Cart::where('user_id', $user->id)
+            ->whereDoesntHave('items')
+            ->delete();
+
+        // Get carts dengan items
+        $carts = Cart::with('items.menu', 'restaurant')
             ->where('user_id', $user->id)
             ->get();
 
@@ -123,6 +130,7 @@ class CartController extends Controller
 
     /**
      * Remove item from cart
+     * If cart becomes empty, delete the cart
      */
     public function removeItem($id)
     {
@@ -132,7 +140,13 @@ class CartController extends Controller
             $q->where('user_id', $user->id);
         })->findOrFail($id);
 
+        $cartId = $item->cart_id;
         $item->delete();
+
+        // Delete cart if it has no items
+        Cart::where('id', $cartId)
+            ->whereDoesntHave('items')
+            ->delete();
 
         return response()->json([
             'success' => true,
@@ -141,15 +155,19 @@ class CartController extends Controller
     }
 
     /**
-     * Clear cart
+     * Clear all carts
      */
     public function clearCart()
     {
         $user = JWTAuth::parseToken()->authenticate();
 
-        Cart::where('user_id', $user->id)->each(function ($cart) {
-            $cart->items()->delete();
-        });
+        // Delete all cart items for user
+        CartItem::whereHas('cart', function ($q) use ($user) {
+            $q->where('user_id', $user->id);
+        })->delete();
+
+        // Delete all empty carts for user
+        Cart::where('user_id', $user->id)->delete();
 
         return response()->json([
             'success' => true,
