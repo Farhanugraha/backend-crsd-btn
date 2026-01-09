@@ -256,7 +256,7 @@ Route::prefix('cart')
 |--------------------------------------------------------------------------
 */
 Route::prefix('orders')
-    ->middleware(['auth:api', 'role:user'])
+    ->middleware(['auth:api'])
     ->group(function () {
         Route::get('', [OrdersController::class, 'index'])
             ->name('orders.index');
@@ -291,7 +291,7 @@ Route::prefix('orders')
 |--------------------------------------------------------------------------
 */
 Route::prefix('payments')
-    ->middleware(['auth:api', 'role:user'])
+    ->middleware(['auth:api'])
     ->group(function () {
         Route::get('orders/{orderId}', [PaymentsController::class, 'show'])
             ->where('orderId', '[0-9]+')

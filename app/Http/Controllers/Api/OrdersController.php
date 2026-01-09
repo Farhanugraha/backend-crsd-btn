@@ -59,6 +59,7 @@ class OrdersController extends Controller
 
     /**
      * Create order from cart (CHECKOUT)
+     * Combine all items from multiple restaurants into 1 order
      */
     public function store(Request $request)
     {
@@ -68,11 +69,17 @@ class OrdersController extends Controller
 
         $user = JWTAuth::parseToken()->authenticate();
 
-        $cart = Cart::with('items.menu')
+        // Get ALL carts for user (bisa multiple restaurants)
+        $carts = Cart::with('items.menu')
             ->where('user_id', $user->id)
-            ->first();
+            ->get();
 
-        if (!$cart || $cart->items->isEmpty()) {
+        // Filter only carts yang punya items
+        $cartsWithItems = $carts->filter(function($cart) {
+            return !$cart->items->isEmpty();
+        });
+
+        if ($cartsWithItems->isEmpty()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cart is empty'
@@ -82,26 +89,39 @@ class OrdersController extends Controller
         DB::beginTransaction();
 
         try {
-            // Generate order code
-            $orderCode = 'ORD-' . now()->format('YmdHis');
+            // Generate unique order code
+            $randomSuffix = strtoupper(substr(str_shuffle('0123456789ABCDEF'), 0, 4));
+            $orderCode = 'ORD-' . now()->format('YmdHis') . $randomSuffix;
 
-            // Calculate total price
-            $totalPrice = $cart->items->sum(function ($item) {
-                return $item->price * $item->quantity;
-            });
+            // Collect ALL items dari semua restaurant
+            $allItems = [];
+            $totalPrice = 0;
 
-            // Create order WITH notes
+            foreach ($cartsWithItems as $cart) {
+                foreach ($cart->items as $item) {
+                    $allItems[] = [
+                        'cart_id' => $cart->id,
+                        'item' => $item,
+                        'restaurant_id' => $cart->restaurant_id
+                    ];
+                    $totalPrice += $item->price * $item->quantity;
+                }
+            }
+
+            // Create 1 order dengan restaurant_id dari cart pertama
+            // (atau bisa NULL jika ingin menandakan multi-restaurant order)
             $order = Orders::create([
                 'order_code'     => $orderCode,
                 'user_id'        => $user->id,
-                'restaurant_id'  => $cart->restaurant_id,
+                'restaurant_id'  => $cartsWithItems->first()->restaurant_id, // Ambil restaurant pertama
                 'total_price'    => $totalPrice,
                 'status'         => 'pending',
                 'notes'          => $validated['notes'] ?? null
             ]);
 
-            // Move cart items to order items
-            foreach ($cart->items as $item) {
+            // Move ALL items dari semua restaurants ke order ini
+            foreach ($allItems as $data) {
+                $item = $data['item'];
                 OrderItem::create([
                     'order_id' => $order->id,
                     'menu_id'  => $item->menu_id,
@@ -111,9 +131,11 @@ class OrdersController extends Controller
                 ]);
             }
 
-            // Clear cart
-            $cart->items()->delete();
-            $cart->delete();
+            // Clear ALL carts untuk user ini
+            foreach ($cartsWithItems as $cart) {
+                $cart->items()->delete();
+                $cart->delete();
+            }
 
             DB::commit();
 
@@ -224,7 +246,6 @@ class OrdersController extends Controller
     /**
      * Cancel order
      */
-
     public function cancel($id)
     {
         $user = JWTAuth::parseToken()->authenticate();

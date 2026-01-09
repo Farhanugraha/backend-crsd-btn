@@ -15,12 +15,14 @@ class Payments extends Model
         'payment_status', 
         'transaction_id',
         'proof_image',      
-        'payment_notes',    
+        'notes',    
         'paid_at'           
     ];
 
     protected $casts = [
-        'paid_at' => 'datetime'
+        'paid_at' => 'datetime',
+        'updated_at' => 'datetime',
+        'created_at'=> 'datetime'
     ];
 
     public function order(): BelongsTo
