@@ -224,6 +224,7 @@ class OrdersController extends Controller
     /**
      * Cancel order
      */
+
     public function cancel($id)
     {
         $user = JWTAuth::parseToken()->authenticate();
@@ -246,12 +247,31 @@ class OrdersController extends Controller
             ], 400);
         }
 
-        $order->update(['status' => 'canceled']);
+        DB::beginTransaction();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Order canceled successfully'
-        ]);
+        try {
+            // Delete order items
+            OrderItem::where('order_id', $order->id)->delete();
+
+            // Delete order
+            $order->delete();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order canceled successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel order',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
