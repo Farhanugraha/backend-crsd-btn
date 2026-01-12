@@ -92,13 +92,12 @@ class CartController extends Controller
     /**
      * Update cart item quantity and notes
      */
-    public function updateItem(Request $request, $id)
-    {
+    public function updateItem(Request $request, $id) {
         $user = JWTAuth::parseToken()->authenticate();
 
         $validator = Validator::make($request->all(), [
-            'quantity' => 'required|integer|min:1',
-            'notes' => 'nullable|string'
+            'quantity' => 'nullable|integer|min:1',
+            'notes' => 'nullable|string|max:200'
         ]);
 
         if ($validator->fails()) {
@@ -108,20 +107,37 @@ class CartController extends Controller
             ], 422);
         }
 
-        $item = CartItem::whereHas('cart', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
-        })->findOrFail($id);
+        try {
+            $item = CartItem::whereHas('cart', function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            })->findOrFail($id);
 
-        $item->update([
-            'quantity' => $request->quantity,
-            'notes' => $request->notes ?? $item->notes
-        ]);
+            $updateData = [];
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Cart item updated'
-        ]);
-    }
+            if ($request->has('quantity') && $request->quantity) {
+                $updateData['quantity'] = $request->quantity;
+            }
+
+            if ($request->has('notes')) {
+                $updateData['notes'] = $request->notes ?? null;
+            }
+
+            if (!empty($updateData)) {
+                $item->update($updateData);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Cart item updated',
+                'data' => $item
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Item not found'
+            ], 404);
+            }
+        }
 
     /**
      * Remove item from cart
