@@ -40,8 +40,7 @@ class CartController extends Controller
     /**
      * Add item to cart with optional notes
      */
-    public function addItem(Request $request)
-    {
+        public function addItem(Request $request) {
         $user = JWTAuth::parseToken()->authenticate();
 
         $validator = Validator::make($request->all(), [
@@ -59,24 +58,19 @@ class CartController extends Controller
         }
 
         DB::transaction(function () use ($request, $user) {
-
             $menu = Menu::findOrFail($request->menu_id);
 
             $cart = Cart::firstOrCreate([
                 'user_id' => $user->id,
                 'restaurant_id' => $request->restaurant_id
             ]);
-
             $item = CartItem::where('cart_id', $cart->id)
                 ->where('menu_id', $menu->id)
+                ->where('notes', $request->notes ?? null) 
                 ->first();
 
             if ($item) {
                 $item->increment('quantity', $request->quantity);
-                // Update notes jika ada
-                if ($request->has('notes')) {
-                    $item->update(['notes' => $request->notes]);
-                }
             } else {
                 CartItem::create([
                     'cart_id' => $cart->id,
@@ -93,6 +87,7 @@ class CartController extends Controller
             'message' => 'Item added to cart'
         ], 201);
     }
+    
 
     /**
      * Update cart item quantity and notes
