@@ -20,17 +20,8 @@ use App\Models\User;
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider within a group which
-| is assigned the "api" middleware group. Enjoy building your API!
-|
 */
 
-/*
-|--------------------------------------------------------------------------
-| HEALTH CHECK
-|--------------------------------------------------------------------------
-*/
 Route::get('/health', function () {
     return response()->json([
         'success' => true,
@@ -45,17 +36,13 @@ Route::get('/health', function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('email')->group(function () {
-    // Public route - handle email verification link click
     Route::get('verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
-             ->name('verification.verify');
+        ->name('verification.verify');
 
-    // Protected routes
     Route::middleware('auth:api')->group(function () {
-        // Check verification status
         Route::get('status', [EmailVerificationController::class, 'status'])
             ->name('verification.status');
 
-        // Resend verification email
         Route::post('resend', [EmailVerificationController::class, 'resend'])
             ->middleware('throttle:3,1')
             ->name('verification.resend');
@@ -68,7 +55,6 @@ Route::prefix('email')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
-    // Public Auth Routes
     Route::post('register', [AuthController::class, 'register'])
         ->middleware('throttle:5,1')
         ->name('auth.register');
@@ -85,7 +71,6 @@ Route::prefix('auth')->group(function () {
         ->middleware('throttle:3,1')
         ->name('password.reset');
 
-    // Protected Auth Routes
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])
             ->name('auth.logout');
@@ -107,7 +92,6 @@ Route::prefix('auth')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('areas')->group(function () {
-    // Public routes
     Route::get('', [AreaController::class, 'index'])
         ->name('areas.index');
     
@@ -122,7 +106,6 @@ Route::prefix('areas')->group(function () {
         ->where('id', '[0-9]+')
         ->name('areas.restaurants');
     
-    // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [AreaController::class, 'store'])
             ->name('areas.store');
@@ -143,7 +126,6 @@ Route::prefix('areas')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('restaurants')->group(function () {
-    // Public routes - Search must be before {id}
     Route::get('search', [RestaurantController::class, 'search'])
         ->name('restaurants.search');
     
@@ -162,7 +144,6 @@ Route::prefix('restaurants')->group(function () {
         ->where('id', '[0-9]+')
         ->name('restaurants.stats');
     
-    // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::get('all', [RestaurantController::class, 'getAllRestaurants'])
             ->name('restaurants.all');
@@ -190,7 +171,6 @@ Route::prefix('restaurants')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('menus')->group(function () {
-    // Public routes
     Route::get('restaurant/{restaurantId}', [MenuController::class, 'index'])
         ->where('restaurantId', '[0-9]+')
         ->name('menus.index');
@@ -199,7 +179,6 @@ Route::prefix('menus')->group(function () {
         ->where('id', '[0-9]+')
         ->name('menus.show');
     
-    // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [MenuController::class, 'store'])
             ->name('menus.store');
@@ -258,31 +237,38 @@ Route::prefix('cart')
 Route::prefix('orders')
     ->middleware(['auth:api'])
     ->group(function () {
+        // GET - Get all user orders
         Route::get('', [OrdersController::class, 'index'])
             ->name('orders.index');
         
+        // POST - Create order from cart
+        Route::post('', [OrdersController::class, 'store'])
+            ->name('orders.store');
+        
+        // GET - Get order detail (HARUS TERAKHIR!)
         Route::get('{id}', [OrdersController::class, 'show'])
             ->where('id', '[0-9]+')
             ->name('orders.show');
         
-        Route::post('', [OrdersController::class, 'store'])
-            ->name('orders.store');
+        // PUT - Update payment status
+        Route::put('{id}/payment-status', [OrdersController::class, 'updatePaymentStatus'])
+            ->where('id', '[0-9]+')
+            ->name('orders.updatePaymentStatus');
         
+        // POST - Cancel order
         Route::post('{id}/cancel', [OrdersController::class, 'cancel'])
             ->where('id', '[0-9]+')
             ->name('orders.cancel');
         
+        // PUT - Update order notes
         Route::put('{id}/notes', [OrdersController::class, 'updateNotes'])
             ->where('id', '[0-9]+')
             ->name('orders.updateNotes');
         
+        // PUT - Update order item notes
         Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes'])
             ->where(['id' => '[0-9]+', 'itemId' => '[0-9]+'])
             ->name('orders.updateItemNotes');
-        
-        Route::post('{id}/rate', [OrdersController::class, 'rateOrder'])
-            ->where('id', '[0-9]+')
-            ->name('orders.rate');
     });
 
 /*
@@ -320,17 +306,29 @@ Route::prefix('admin')
         Route::get('dashboard', [AdminController::class, 'dashboard'])
             ->name('admin.dashboard');
         
+        // Orders Management
         Route::get('orders', [OrdersController::class, 'getAllOrders'])
             ->name('admin.orders.index');
+        
+        Route::post('orders/batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
+            ->name('admin.orders.batchUpdate');
+        
+        Route::get('orders/pending', [OrdersController::class, 'getPendingOrders'])
+            ->name('admin.orders.pending');
+        
+        Route::get('orders/status/{status}', [OrdersController::class, 'getOrdersByStatus'])
+            ->where('status', 'processing|completed|canceled')
+            ->name('admin.orders.byStatus');
         
         Route::get('orders/{id}', [OrdersController::class, 'show'])
             ->where('id', '[0-9]+')
             ->name('admin.orders.show');
         
-        Route::put('orders/{id}/status', [OrdersController::class, 'updateStatus'])
+        Route::put('orders/{id}/status', [OrdersController::class, 'updateOrderStatus'])
             ->where('id', '[0-9]+')
             ->name('admin.orders.updateStatus');
         
+        // Payments Management
         Route::get('payments', [PaymentsController::class, 'getAllPayments'])
             ->name('admin.payments.index');
         
@@ -346,6 +344,7 @@ Route::prefix('admin')
             ->where('paymentId', '[0-9]+')
             ->name('admin.payments.reject');
         
+        // Statistics & Reports
         Route::get('statistics', [AdminController::class, 'getStatistics'])
             ->name('admin.statistics');
         
@@ -361,11 +360,9 @@ Route::prefix('admin')
 Route::prefix('superadmin')
     ->middleware(['auth:api', 'role:superadmin'])
     ->group(function () {
-        // Dashboard
         Route::get('dashboard', [SuperAdminController::class, 'dashboard'])
             ->name('superadmin.dashboard');
         
-        // User Management
         Route::prefix('users')->group(function () {
             Route::get('', [SuperAdminController::class, 'listAllUsers'])
                 ->name('superadmin.users.index');
@@ -391,7 +388,6 @@ Route::prefix('superadmin')
                 ->name('superadmin.users.activate');
         });
         
-        // Settings
         Route::prefix('settings')->group(function () {
             Route::get('', [SuperAdminController::class, 'getSettings'])
                 ->name('superadmin.settings.index');
@@ -406,7 +402,6 @@ Route::prefix('superadmin')
                 ->name('superadmin.settings.updateEmailConfig');
         });
         
-        // System
         Route::prefix('system')->group(function () {
             Route::get('logs', [SuperAdminController::class, 'getLogs'])
                 ->name('superadmin.system.logs');
@@ -418,7 +413,6 @@ Route::prefix('superadmin')
                 ->name('superadmin.system.health');
         });
         
-        // Reports & Analytics
         Route::prefix('reports')->group(function () {
             Route::get('', [SuperAdminController::class, 'getReports'])
                 ->name('superadmin.reports.index');

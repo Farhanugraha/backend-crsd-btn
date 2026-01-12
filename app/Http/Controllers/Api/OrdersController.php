@@ -81,7 +81,7 @@ class OrdersController extends Controller
 
     /**
      * Create order from cart (CHECKOUT)
-     * Combine all items from multiple restaurants into 1 order
+     * Status: pending, order_status: null
      */
     public function store(Request $request)
     {
@@ -137,13 +137,16 @@ class OrdersController extends Controller
                 }
             }
 
-            // Create 1 order dengan restaurant_id dari cart pertama
+            // Create 1 order dengan:
+            // - status = pending (payment status)
+            // - order_status = null (menunggu pembayaran dikonfirmasi)
             $order = Orders::create([
                 'order_code'     => $orderCode,
                 'user_id'        => $user->id,
                 'restaurant_id'  => $cartsWithItems->first()->restaurant_id,
                 'total_price'    => $totalPrice,
-                'status'         => 'pending',
+                'status'         => 'pending',           // Payment status
+                'order_status'   => null,                // Null sampai pembayaran confirmed
                 'notes'          => $validated['notes'] ?? null
             ]);
 
@@ -192,6 +195,108 @@ class OrdersController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create order',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update payment status
+     * Ketika pembayaran dikonfirmasi:
+     * - Jika paid: status = 'paid' & order_status = 'processing'
+     * - Jika rejected: status = 'pending' & order_status = null
+     */
+    public function updatePaymentStatus(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'status' => 'required|in:paid,rejected'
+        ]);
+
+        try {
+            $user = JWTAuth::parseToken()->authenticate();
+
+            $order = Orders::where('id', $id)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            // Hanya bisa update dari status pending
+            if ($order->status !== 'paid') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only pending orders can be updated'
+                ], 400);
+            }
+
+            DB::beginTransaction();
+
+            try {
+                if ($validated['status'] === 'paid') {
+                    // Pembayaran diterima: status = paid & order_status = processing
+                    Log::info('Updating order payment status to paid', [
+                        'order_id' => $id,
+                        'user_id' => $user->id
+                    ]);
+                    
+                    $order->update([
+                        'status' => 'paid',
+                        'order_status' => 'processing'
+                    ]);
+                } else {
+                    // Pembayaran ditolak: tetap pending (user bisa coba lagi)
+                    Log::info('Payment rejected, reverting to pending', [
+                        'order_id' => $id,
+                        'user_id' => $user->id
+                    ]);
+                    
+                    $order->update([
+                        'status' => 'pending',
+                        'order_status' => null
+                    ]);
+                }
+
+                DB::commit();
+
+                // PENTING: Refresh dari database untuk memastikan data terbaru
+                $order->refresh();
+                
+                // Log untuk debugging
+                Log::info('Payment status updated successfully', [
+                    'order_id' => $order->id,
+                    'status' => $order->status,
+                    'order_status' => $order->order_status
+                ]);
+
+                // Load full data dengan relationships
+                $order = Orders::with('items.menu', 'restaurant')->find($order->id);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Payment status updated successfully',
+                    'data' => $order
+                ]);
+
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+
+        } catch (\Exception $e) {
+            Log::error('Update payment status failed:', [
+                'order_id' => $id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update payment status',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -305,10 +410,75 @@ class OrdersController extends Controller
     }
 
     /**
-     * Cancel order
+     * Update order status (untuk OB/Admin)
+     * Hanya bisa update jika status payment = paid
      */
-    public function cancel($id)
-    {
+    public function updateOrderStatus(Request $request, $id) {
+        $validated = $request->validate([
+            'order_status' => 'required|in:processing,completed,canceled'
+        ]);
+
+        try {
+            $order = Orders::find($id);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            if ($order->status !== 'paid') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Can only update order status for paid orders'
+                ], 400);
+            }
+
+            $currentStatus = $order->order_status;
+            $newStatus = $validated['order_status'];
+
+            $allowedTransitions = [
+                'processing' => ['completed', 'canceled'],
+                'completed' => [],
+                'canceled' => []
+            ];
+
+            if (!isset($allowedTransitions[$currentStatus]) ||
+                !in_array($newStatus, $allowedTransitions[$currentStatus])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Cannot transition from {$currentStatus} to {$newStatus}"
+                ], 400);
+            }
+
+            $order->update([
+                'order_status' => $newStatus
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order status updated',
+                'data' => $order
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Update order status failed:', ['error' => $e->getMessage()]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update order status',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
+    /**
+     * Cancel order (hanya status pending)
+     */
+        public function cancel($id) {
+
         try {
             $user = JWTAuth::parseToken()->authenticate();
 
@@ -322,7 +492,6 @@ class OrdersController extends Controller
                     'message' => 'Order not found'
                 ], 404);
             }
-
             if ($order->status !== 'pending') {
                 return response()->json([
                     'success' => false,
@@ -332,30 +501,92 @@ class OrdersController extends Controller
 
             DB::beginTransaction();
 
-            // Delete order items
             OrderItem::where('order_id', $order->id)->delete();
 
-            // Delete order
             $order->delete();
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Order canceled successfully'
+                'message' => 'Order canceled and deleted successfully'
             ]);
 
-        } catch (\Exception $e) {
-            DB::rollBack();
+            } catch (\Exception $e) {
+                DB::rollBack();
 
-            Log::error('Cancel order failed:', [
-                'order_id' => $id,
-                'error' => $e->getMessage()
-            ]);
+                Log::error('Cancel order failed:', [
+                    'order_id' => $id,
+                    'error' => $e->getMessage()
+                ]);
+
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to cancel order',
+                    'error' => $e->getMessage()
+                ], 500);
+            }
+        }
+
+
+    /**
+     * Get pending orders (untuk OB)
+     */
+    public function getPendingOrders()
+    {
+        try {
+            $orders = Orders::with('user', 'restaurant', 'items.menu')
+                ->where('order_status', 'processing')
+                ->where('status', 'paid')  
+                ->latest()
+                ->get();
 
             return response()->json([
+                'success' => true,
+                'message' => 'Pending orders retrieved',
+                'data' => $orders
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get pending orders failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
                 'success' => false,
-                'message' => 'Failed to cancel order',
+                'message' => 'Failed to retrieve pending orders',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Batch update multiple orders status (untuk OB)
+     */
+    public function batchUpdateStatus(Request $request)
+    {
+        $validated = $request->validate([
+            'order_ids' => 'required|array',
+            'order_ids.*' => 'required|integer|exists:orders,id',
+            'order_status' => 'required|in:processing,completed,canceled'
+        ]);
+
+        try {
+            $updatedCount = Orders::whereIn('id', $validated['order_ids'])
+                ->where('order_status', 'processing')
+                ->where('status', 'paid')
+                ->update(['order_status' => $validated['order_status']]);
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$updatedCount} orders updated",
+                'data' => [
+                    'updated_count' => $updatedCount
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Batch update status failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update orders',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -378,6 +609,42 @@ class OrdersController extends Controller
             ]);
         } catch (\Exception $e) {
             Log::error('Get all orders failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve orders',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Admin get orders by status
+     */
+    public function getOrdersByStatus($status)
+    {
+        try {
+            $validStatuses = ['processing', 'completed', 'canceled'];
+            
+            if (!in_array($status, $validStatuses)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid status'
+                ], 400);
+            }
+
+            $orders = Orders::with('user', 'restaurant', 'items.menu')
+                ->where('order_status', $status)
+                ->latest()
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Orders retrieved',
+                'data' => $orders
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get orders by status failed:', ['error' => $e->getMessage()]);
             
             return response()->json([
                 'success' => false,
