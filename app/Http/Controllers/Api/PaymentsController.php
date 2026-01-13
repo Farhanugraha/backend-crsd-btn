@@ -262,6 +262,40 @@ class PaymentsController extends Controller
         }
     }
 
+        /**
+     * Admin get payment detail (by payment ID)
+     */
+    public function getPaymentDetail($paymentId)
+    {
+        try {
+            $payment = Payments::with(['order' => function($q) {
+                $q->with(['user', 'items.menu']);
+            }])->find($paymentId);
+
+            if (!$payment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment not found'
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment detail retrieved',
+                'data' => $payment
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Get payment detail failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payment',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     /**
      * Admin confirm or reject payment
      */

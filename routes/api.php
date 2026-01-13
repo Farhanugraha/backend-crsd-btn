@@ -106,6 +106,7 @@ Route::prefix('areas')->group(function () {
         ->where('id', '[0-9]+')
         ->name('areas.restaurants');
     
+    // SUPERADMIN ONLY - Update with role middleware
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [AreaController::class, 'store'])
             ->name('areas.store');
@@ -144,6 +145,7 @@ Route::prefix('restaurants')->group(function () {
         ->where('id', '[0-9]+')
         ->name('restaurants.stats');
     
+    // SUPERADMIN ONLY - Update with role middleware
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::get('all', [RestaurantController::class, 'getAllRestaurants'])
             ->name('restaurants.all');
@@ -179,6 +181,7 @@ Route::prefix('menus')->group(function () {
         ->where('id', '[0-9]+')
         ->name('menus.show');
     
+    // SUPERADMIN ONLY - Update with role middleware
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [MenuController::class, 'store'])
             ->name('menus.store');
@@ -199,7 +202,7 @@ Route::prefix('menus')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| USER CART ROUTES
+| USER CART ROUTES - HANYA USER BIASA
 |--------------------------------------------------------------------------
 */
 Route::prefix('cart')
@@ -231,41 +234,35 @@ Route::prefix('cart')
 
 /*
 |--------------------------------------------------------------------------
-| USER ORDER ROUTES
+| USER ORDER ROUTES - UNTUK SEMUA AUTHENTICATED USERS
 |--------------------------------------------------------------------------
 */
 Route::prefix('orders')
     ->middleware(['auth:api'])
     ->group(function () {
-        // GET - Get all user orders
+        // User hanya bisa akses order mereka sendiri
         Route::get('', [OrdersController::class, 'index'])
             ->name('orders.index');
         
-        // POST - Create order from cart
         Route::post('', [OrdersController::class, 'store'])
             ->name('orders.store');
         
-        // GET - Get order detail (HARUS TERAKHIR!)
         Route::get('{id}', [OrdersController::class, 'show'])
             ->where('id', '[0-9]+')
             ->name('orders.show');
         
-        // PUT - Update payment status
         Route::put('{id}/payment-status', [OrdersController::class, 'updatePaymentStatus'])
             ->where('id', '[0-9]+')
             ->name('orders.updatePaymentStatus');
         
-        // POST - Cancel order
         Route::post('{id}/cancel', [OrdersController::class, 'cancel'])
             ->where('id', '[0-9]+')
             ->name('orders.cancel');
         
-        // PUT - Update order notes
         Route::put('{id}/notes', [OrdersController::class, 'updateNotes'])
             ->where('id', '[0-9]+')
             ->name('orders.updateNotes');
         
-        // PUT - Update order item notes
         Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes'])
             ->where(['id' => '[0-9]+', 'itemId' => '[0-9]+'])
             ->name('orders.updateItemNotes');
@@ -273,7 +270,7 @@ Route::prefix('orders')
 
 /*
 |--------------------------------------------------------------------------
-| USER PAYMENT ROUTES
+| USER PAYMENT ROUTES - UNTUK SEMUA AUTHENTICATED USERS
 |--------------------------------------------------------------------------
 */
 Route::prefix('payments')
@@ -297,64 +294,68 @@ Route::prefix('payments')
 
 /*
 |--------------------------------------------------------------------------
-| ADMIN ROUTES
+| ADMIN ROUTES - ADMIN & SUPERADMIN
 |--------------------------------------------------------------------------
 */
-Route::prefix('admin')
-    ->middleware(['auth:api', 'role:admin,superadmin'])
-    ->group(function () {
-        Route::get('dashboard', [AdminController::class, 'dashboard'])
-            ->name('admin.dashboard');
-        
-        // Orders Management
-        Route::get('orders', [OrdersController::class, 'getAllOrders'])
-            ->name('admin.orders.index');
-        
-        Route::post('orders/batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
-            ->name('admin.orders.batchUpdate');
-        
-        Route::get('orders/pending', [OrdersController::class, 'getPendingOrders'])
-            ->name('admin.orders.pending');
-        
-        Route::get('orders/status/{status}', [OrdersController::class, 'getOrdersByStatus'])
-            ->where('status', 'processing|completed|canceled')
-            ->name('admin.orders.byStatus');
-        
-        Route::get('orders/{id}', [OrdersController::class, 'show'])
-            ->where('id', '[0-9]+')
-            ->name('admin.orders.show');
-        
-        Route::put('orders/{id}/status', [OrdersController::class, 'updateOrderStatus'])
-            ->where('id', '[0-9]+')
-            ->name('admin.orders.updateStatus');
-        
-        // Payments Management
-        Route::get('payments', [PaymentsController::class, 'getAllPayments'])
-            ->name('admin.payments.index');
-        
-        Route::get('payments/{id}', [PaymentsController::class, 'show'])
-            ->where('id', '[0-9]+')
-            ->name('admin.payments.show');
-        
-        Route::put('payments/{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
-            ->where('paymentId', '[0-9]+')
-            ->name('admin.payments.confirm');
-        
-        Route::put('payments/{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
-            ->where('paymentId', '[0-9]+')
-            ->name('admin.payments.reject');
-        
-        // Statistics & Reports
-        Route::get('statistics', [AdminController::class, 'getStatistics'])
-            ->name('admin.statistics');
-        
-        Route::get('reports', [AdminController::class, 'getReports'])
-            ->name('admin.reports');
-    });
+    Route::prefix('admin')
+        ->middleware(['auth:api', 'role:admin,superadmin'])
+        ->group(function () {
+            Route::get('dashboard', [AdminController::class, 'dashboard'])
+                ->name('admin.dashboard');
+            
+            // Orders Management
+            Route::prefix('orders')->group(function () {
+                Route::get('', [OrdersController::class, 'getAllOrders'])
+                    ->name('admin.orders.index');
+                
+                Route::post('batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
+                    ->name('admin.orders.batchUpdate');
+                
+                Route::get('pending', [OrdersController::class, 'getPendingOrders'])
+                    ->name('admin.orders.pending');
+                
+                Route::get('status/{status}', [OrdersController::class, 'getOrdersByStatus'])
+                    ->where('status', 'processing|completed|canceled')
+                    ->name('admin.orders.byStatus');
+                
+                Route::get('{id}', [OrdersController::class, 'show'])
+                    ->where('id', '[0-9]+')
+                    ->name('admin.orders.show');
+                
+                Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
+                    ->where('id', '[0-9]+')
+                    ->name('admin.orders.updateStatus');
+            });
+            
+            // Payments Management - GANTI INI
+            Route::prefix('payments')->group(function () {
+                Route::get('', [PaymentsController::class, 'getAllPayments'])
+                    ->name('admin.payments.index');
+                
+                Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])  // GANTI NAMA METHOD
+                    ->where('paymentId', '[0-9]+')
+                    ->name('admin.payments.show');
+                
+                Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
+                    ->where('paymentId', '[0-9]+')
+                    ->name('admin.payments.confirm');
+                
+                Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
+                    ->where('paymentId', '[0-9]+')
+                    ->name('admin.payments.reject');
+            });
+            
+            // Statistics & Reports
+            Route::get('statistics', [AdminController::class, 'getStatistics'])
+                ->name('admin.statistics');
+            
+            Route::get('reports', [AdminController::class, 'getReports'])
+                ->name('admin.reports');
+        });
 
 /*
 |--------------------------------------------------------------------------
-| SUPERADMIN ROUTES
+| SUPERADMIN ROUTES - SUPERADMIN ONLY
 |--------------------------------------------------------------------------
 */
 Route::prefix('superadmin')
@@ -363,6 +364,7 @@ Route::prefix('superadmin')
         Route::get('dashboard', [SuperAdminController::class, 'dashboard'])
             ->name('superadmin.dashboard');
         
+        // User Management
         Route::prefix('users')->group(function () {
             Route::get('', [SuperAdminController::class, 'listAllUsers'])
                 ->name('superadmin.users.index');
@@ -375,10 +377,6 @@ Route::prefix('superadmin')
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.changeRole');
             
-            Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.delete');
-            
             Route::post('{id}/deactivate', [SuperAdminController::class, 'deactivateUser'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.deactivate');
@@ -386,8 +384,13 @@ Route::prefix('superadmin')
             Route::post('{id}/activate', [SuperAdminController::class, 'activateUser'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.activate');
+            
+            Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
+                ->where('id', '[0-9]+')
+                ->name('superadmin.users.delete');
         });
         
+        // Settings
         Route::prefix('settings')->group(function () {
             Route::get('', [SuperAdminController::class, 'getSettings'])
                 ->name('superadmin.settings.index');
@@ -402,6 +405,7 @@ Route::prefix('superadmin')
                 ->name('superadmin.settings.updateEmailConfig');
         });
         
+        // System Management
         Route::prefix('system')->group(function () {
             Route::get('logs', [SuperAdminController::class, 'getLogs'])
                 ->name('superadmin.system.logs');
@@ -413,6 +417,7 @@ Route::prefix('superadmin')
                 ->name('superadmin.system.health');
         });
         
+        // Reports
         Route::prefix('reports')->group(function () {
             Route::get('', [SuperAdminController::class, 'getReports'])
                 ->name('superadmin.reports.index');
