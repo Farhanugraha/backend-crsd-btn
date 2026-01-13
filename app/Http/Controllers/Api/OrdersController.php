@@ -44,7 +44,7 @@ class OrdersController extends Controller
     }
 
     /**
-     * Get order detail
+     * Get order detail (user - hanya order mereka)
      */
     public function show($id)
     {
@@ -68,6 +68,43 @@ class OrdersController extends Controller
                 'message' => 'Order detail retrieved',
                 'data' => $order
             ]);
+        } catch (\Exception $e) {
+            Log::error('Get order detail failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve order',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Admin get single order detail (by order ID)
+     * Load dengan items, menu, dan user relationship
+     */
+    public function getOrderDetail($id)
+    {
+        try {
+            $order = Orders::with([
+                'user',
+                'items.menu',
+                'restaurant'
+            ])->find($id);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order detail retrieved',
+                'data' => $order
+            ], 200);
+
         } catch (\Exception $e) {
             Log::error('Get order detail failed:', ['error' => $e->getMessage()]);
             
@@ -473,12 +510,10 @@ class OrdersController extends Controller
         }
     }
 
-
     /**
      * Cancel order (hanya status pending)
      */
-        public function cancel($id) {
-
+    public function cancel($id) {
         try {
             $user = JWTAuth::parseToken()->authenticate();
 
@@ -492,6 +527,7 @@ class OrdersController extends Controller
                     'message' => 'Order not found'
                 ], 404);
             }
+
             if ($order->status !== 'pending') {
                 return response()->json([
                     'success' => false,
@@ -502,7 +538,6 @@ class OrdersController extends Controller
             DB::beginTransaction();
 
             OrderItem::where('order_id', $order->id)->delete();
-
             $order->delete();
 
             DB::commit();
@@ -512,22 +547,21 @@ class OrdersController extends Controller
                 'message' => 'Order canceled and deleted successfully'
             ]);
 
-            } catch (\Exception $e) {
-                DB::rollBack();
+        } catch (\Exception $e) {
+            DB::rollBack();
 
-                Log::error('Cancel order failed:', [
-                    'order_id' => $id,
-                    'error' => $e->getMessage()
-                ]);
+            Log::error('Cancel order failed:', [
+                'order_id' => $id,
+                'error' => $e->getMessage()
+            ]);
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Failed to cancel order',
-                    'error' => $e->getMessage()
-                ], 500);
-            }
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel order',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
+    }
 
     /**
      * Get pending orders (untuk OB)

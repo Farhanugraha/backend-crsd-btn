@@ -136,7 +136,7 @@ class PaymentsController extends Controller
     }
 
     /**
-     * Get payment details
+     * Get payment details (user - by order_id)
      */
     public function show($orderId)
     {
@@ -262,8 +262,44 @@ class PaymentsController extends Controller
         }
     }
 
-        /**
-     * Admin get payment detail (by payment ID)
+    /**
+     * Admin get payment detail by ORDER ID (dari orders list)
+     * PENTING: Ini dipanggil dari admin dashboard dengan order_id
+     */
+    public function getPaymentByOrder($orderId)
+    {
+        try {
+            $payment = Payments::with(['order' => function($q) {
+                $q->with(['user', 'items.menu']);
+            }])->where('order_id', $orderId)->first();
+
+            if (!$payment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment not found for this order'
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment detail retrieved',
+                'data' => $payment
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Get payment by order failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payment',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Admin get payment detail by PAYMENT ID
+     * (jika butuh akses langsung by payment id)
      */
     public function getPaymentDetail($paymentId)
     {
@@ -297,24 +333,14 @@ class PaymentsController extends Controller
     }
 
     /**
-     * Admin confirm or reject payment
+     * Admin confirm or reject payment (by payment_id)
      */
     public function confirmPayment(Request $request, $paymentId)
     {
         try {
-            $validator = Validator::make($request->all(), [
-                'status' => 'required|in:completed,rejected'
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation error',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $payment = Payments::with('order')->find($paymentId);
+            $payment = Payments::with(['order' => function($q) {
+                $q->with(['user', 'items.menu']);
+            }])->find($paymentId);
 
             if (!$payment) {
                 return response()->json([
@@ -323,23 +349,76 @@ class PaymentsController extends Controller
                 ], 404);
             }
 
-            $payment->update(['payment_status' => $request->status]);
+            // Set status berdasarkan action
+            $newStatus = 'completed';
+            $payment->update(['payment_status' => $newStatus]);
 
-            if ($request->status === 'completed') {
-                $payment->order->update(['status' => 'paid']);
-            } elseif ($request->status === 'rejected') {
-                $payment->order->update(['status' => 'pending']);
-            }
+            // Update order status ke paid
+            $payment->order->update(['status' => 'paid']);
+
+            // Reload data
+            $payment = Payments::with(['order' => function($q) {
+                $q->with(['user', 'items.menu']);
+            }])->find($paymentId);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Payment status updated',
+                'message' => 'Payment status updated to completed',
                 'data' => $payment
             ], 200);
+
         } catch (\Exception $e) {
+            Log::error('Confirm payment failed:', ['error' => $e->getMessage()]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to confirm payment',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Admin reject payment (by payment_id)
+     */
+    public function rejectPayment(Request $request, $paymentId)
+    {
+        try {
+            $payment = Payments::with(['order' => function($q) {
+                $q->with(['user', 'items.menu']);
+            }])->find($paymentId);
+
+            if (!$payment) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Payment not found'
+                ], 404);
+            }
+
+            // Set status to rejected
+            $newStatus = 'rejected';
+            $payment->update(['payment_status' => $newStatus]);
+
+            // Update order status kembali ke pending
+            $payment->order->update(['status' => 'pending']);
+
+            // Reload data
+            $payment = Payments::with(['order' => function($q) {
+                $q->with(['user', 'items.menu']);
+            }])->find($paymentId);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment status updated to rejected',
+                'data' => $payment
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Reject payment failed:', ['error' => $e->getMessage()]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to reject payment',
                 'error' => $e->getMessage()
             ], 500);
         }

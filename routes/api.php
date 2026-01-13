@@ -297,61 +297,65 @@ Route::prefix('payments')
 | ADMIN ROUTES - ADMIN & SUPERADMIN
 |--------------------------------------------------------------------------
 */
-    Route::prefix('admin')
-        ->middleware(['auth:api', 'role:admin,superadmin'])
-        ->group(function () {
-            Route::get('dashboard', [AdminController::class, 'dashboard'])
-                ->name('admin.dashboard');
+Route::prefix('admin')
+    ->middleware(['auth:api', 'role:admin,superadmin'])
+    ->group(function () {
+        Route::get('dashboard', [AdminController::class, 'dashboard'])
+            ->name('admin.dashboard');
+        
+        // Orders Management
+        Route::prefix('orders')->group(function () {
+            Route::get('', [OrdersController::class, 'getAllOrders'])
+                ->name('admin.orders.index');
             
-            // Orders Management
-            Route::prefix('orders')->group(function () {
-                Route::get('', [OrdersController::class, 'getAllOrders'])
-                    ->name('admin.orders.index');
-                
-                Route::post('batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
-                    ->name('admin.orders.batchUpdate');
-                
-                Route::get('pending', [OrdersController::class, 'getPendingOrders'])
-                    ->name('admin.orders.pending');
-                
-                Route::get('status/{status}', [OrdersController::class, 'getOrdersByStatus'])
-                    ->where('status', 'processing|completed|canceled')
-                    ->name('admin.orders.byStatus');
-                
-                Route::get('{id}', [OrdersController::class, 'show'])
-                    ->where('id', '[0-9]+')
-                    ->name('admin.orders.show');
-                
-                Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
-                    ->where('id', '[0-9]+')
-                    ->name('admin.orders.updateStatus');
-            });
+            Route::post('batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
+                ->name('admin.orders.batchUpdate');
             
-            // Payments Management - GANTI INI
-            Route::prefix('payments')->group(function () {
-                Route::get('', [PaymentsController::class, 'getAllPayments'])
-                    ->name('admin.payments.index');
-                
-                Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])  // GANTI NAMA METHOD
-                    ->where('paymentId', '[0-9]+')
-                    ->name('admin.payments.show');
-                
-                Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
-                    ->where('paymentId', '[0-9]+')
-                    ->name('admin.payments.confirm');
-                
-                Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
-                    ->where('paymentId', '[0-9]+')
-                    ->name('admin.payments.reject');
-            });
+            Route::get('pending', [OrdersController::class, 'getPendingOrders'])
+                ->name('admin.orders.pending');
             
-            // Statistics & Reports
-            Route::get('statistics', [AdminController::class, 'getStatistics'])
-                ->name('admin.statistics');
+            Route::get('status/{status}', [OrdersController::class, 'getOrdersByStatus'])
+                ->where('status', 'processing|completed|canceled')
+                ->name('admin.orders.byStatus');
             
-            Route::get('reports', [AdminController::class, 'getReports'])
-                ->name('admin.reports');
+            // ✅ Get single order detail by ID (dengan items & menu)
+            Route::get('{id}', [OrdersController::class, 'getOrderDetail'])
+                ->where('id', '[0-9]+')
+                ->name('admin.orders.show');
+            
+            Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
+                ->where('id', '[0-9]+')
+                ->name('admin.orders.updateStatus');
         });
+        
+        // Payments Management
+        Route::prefix('payments')->group(function () {
+            Route::get('', [PaymentsController::class, 'getAllPayments'])
+                ->name('admin.payments.index');
+            
+            // Get payment by ORDER ID (dari orders list - klik detail)
+            Route::get('{orderId}', [PaymentsController::class, 'getPaymentByOrder'])
+                ->where('orderId', '[0-9]+')
+                ->name('admin.payments.showByOrder');
+            
+            // Confirm payment (set to completed) - by PAYMENT ID
+            Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
+                ->where('paymentId', '[0-9]+')
+                ->name('admin.payments.confirm');
+            
+            // Reject payment (set to rejected) - by PAYMENT ID
+            Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
+                ->where('paymentId', '[0-9]+')
+                ->name('admin.payments.reject');
+        });
+        
+        // Statistics & Reports
+        Route::get('statistics', [AdminController::class, 'getStatistics'])
+            ->name('admin.statistics');
+        
+        Route::get('reports', [AdminController::class, 'getReports'])
+            ->name('admin.reports');
+    });
 
 /*
 |--------------------------------------------------------------------------
