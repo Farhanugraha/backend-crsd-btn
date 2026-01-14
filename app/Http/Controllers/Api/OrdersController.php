@@ -626,6 +626,120 @@ class OrdersController extends Controller
         }
     }
 
+     /**
+     * Toggle order item checked status
+     * Admin bisa ceklis/unceklis item saat prepare order
+     */
+
+     public function toggleItemChecked(Request $request, $orderId, $itemId)
+    {
+        try {
+            $order = Orders::find($orderId);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            // Hanya bisa ceklis jika order status = processing dan payment = paid
+            if ($order->status !== 'paid' || $order->order_status !== 'processing') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Can only check items for processing orders with paid status'
+                ], 400);
+            }
+
+            $item = OrderItem::where('id', $itemId)
+                ->where('order_id', $orderId)
+                ->first();
+
+            if (!$item) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Item not found'
+                ], 404);
+            }
+
+            // Toggle is_checked
+            $item->is_checked = !$item->is_checked;
+            $item->save();
+
+            Log::info('Item checked status updated', [
+                'order_id' => $orderId,
+                'item_id' => $itemId,
+                'is_checked' => $item->is_checked
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Item checked status updated',
+                'data' => [
+                    'item_id' => $item->id,
+                    'is_checked' => $item->is_checked
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Toggle item checked failed:', [
+                'order_id' => $orderId,
+                'item_id' => $itemId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update item checked status',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get all checked items count for an order
+     */
+
+   public function getCheckedItemsCount($orderId)
+    {
+        try {
+            $order = Orders::find($orderId);
+
+            if (!$order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Order not found'
+                ], 404);
+            }
+
+            $totalItems = $order->items()->count();
+            $checkedItems = $order->items()->where('is_checked', true)->count();
+            $allChecked = $totalItems > 0 && $checkedItems === $totalItems;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'total_items' => $totalItems,
+                    'checked_items' => $checkedItems,
+                    'all_checked' => $allChecked
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Get checked items count failed:', [
+                'order_id' => $orderId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to get checked items count',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+
     /**
      * Admin get all orders
      */

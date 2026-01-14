@@ -318,7 +318,6 @@ Route::prefix('admin')
                 ->where('status', 'processing|completed|canceled')
                 ->name('admin.orders.byStatus');
             
-            // ✅ Get single order detail by ID (dengan items & menu)
             Route::get('{id}', [OrdersController::class, 'getOrderDetail'])
                 ->where('id', '[0-9]+')
                 ->name('admin.orders.show');
@@ -326,6 +325,14 @@ Route::prefix('admin')
             Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
                 ->where('id', '[0-9]+')
                 ->name('admin.orders.updateStatus');
+            
+            Route::put('{id}/items/{itemId}/toggle-check', [OrdersController::class, 'toggleItemChecked'])
+                ->where(['id' => '[0-9]+', 'itemId' => '[0-9]+'])
+                ->name('admin.orders.toggleItemChecked');
+            
+            Route::get('{id}/checked-items-count', [OrdersController::class, 'getCheckedItemsCount'])
+                ->where('id', '[0-9]+')
+                ->name('admin.orders.checkedItemsCount');
         });
         
         // Payments Management
