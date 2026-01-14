@@ -337,23 +337,30 @@ Route::prefix('admin')
         
         // Payments Management
         Route::prefix('payments')->group(function () {
+            // Route yang lebih SPESIFIK harus DULUAN!
+            
+            // 1. GET semua payments (list)
             Route::get('', [PaymentsController::class, 'getAllPayments'])
                 ->name('admin.payments.index');
             
-            // Get payment by ORDER ID (dari orders list - klik detail)
-            Route::get('{orderId}', [PaymentsController::class, 'getPaymentByOrder'])
-                ->where('orderId', '[0-9]+')
-                ->name('admin.payments.showByOrder');
-            
-            // Confirm payment (set to completed) - by PAYMENT ID
+            // 2. PUT untuk confirm/reject (by payment ID)
             Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.confirm');
             
-            // Reject payment (set to rejected) - by PAYMENT ID
             Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.reject');
+            
+            // 3. GET detail payment (by payment ID) - HARUS SETELAH confirm/reject!
+            Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])
+                ->where('paymentId', '[0-9]+')
+                ->name('admin.payments.show');
+            
+            // 4. GET payment by order ID (alternatif)
+            // Route::get('order/{orderId}', [PaymentsController::class, 'getPaymentByOrder'])
+            //     ->where('orderId', '[0-9]+')
+            //     ->name('admin.payments.showByOrder');
         });
         
         // Statistics & Reports
