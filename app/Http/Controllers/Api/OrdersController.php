@@ -16,16 +16,23 @@ class OrdersController extends Controller
 {
     /**
      * Get user orders
+     * Load items dengan menu.restaurant.area untuk ekstrak area
      */
     public function index()
     {
         try {
             $user = JWTAuth::parseToken()->authenticate();
 
-            $orders = Orders::with('items.menu', 'restaurant')
+            $orders = Orders::with(['items.menu.restaurant.area'])
                 ->where('user_id', $user->id)
                 ->latest()
                 ->get();
+
+            // Transform data untuk include unique areas
+            $orders = $orders->map(function($order) {
+                $order->areas = $this->extractAreasFromOrder($order);
+                return $order;
+            });
 
             return response()->json([
                 'success' => true,
@@ -51,7 +58,7 @@ class OrdersController extends Controller
         try {
             $user = JWTAuth::parseToken()->authenticate();
 
-            $order = Orders::with('items.menu', 'restaurant')
+            $order = Orders::with(['items.menu.restaurant.area'])
                 ->where('id', $id)
                 ->where('user_id', $user->id)
                 ->first();
@@ -62,6 +69,9 @@ class OrdersController extends Controller
                     'message' => 'Order not found'
                 ], 404);
             }
+
+            // Add areas collection
+            $order->areas = $this->extractAreasFromOrder($order);
 
             return response()->json([
                 'success' => true,
@@ -81,15 +91,14 @@ class OrdersController extends Controller
 
     /**
      * Admin get single order detail (by order ID)
-     * Load dengan items, menu, dan user relationship
+     * Load dengan items.menu.restaurant.area untuk ekstrak semua area
      */
     public function getOrderDetail($id)
     {
         try {
             $order = Orders::with([
                 'user',
-                'items.menu',
-                'restaurant'
+                'items.menu.restaurant.area'
             ])->find($id);
 
             if (!$order) {
@@ -98,6 +107,9 @@ class OrdersController extends Controller
                     'message' => 'Order not found'
                 ], 404);
             }
+
+            // Add areas collection dari semua items
+            $order->areas = $this->extractAreasFromOrder($order);
 
             return response()->json([
                 'success' => true,
@@ -117,8 +129,33 @@ class OrdersController extends Controller
     }
 
     /**
+     * Helper: Extract unique areas dari order items
+     * Return collection of unique areas
+     */
+    private function extractAreasFromOrder($order)
+    {
+        $areas = collect();
+        
+        if ($order->items) {
+            foreach ($order->items as $item) {
+                if ($item->menu && $item->menu->restaurant && $item->menu->restaurant->area) {
+                    $area = $item->menu->restaurant->area;
+                    
+                    // Only add if not already in collection (unique by id)
+                    if (!$areas->contains('id', $area->id)) {
+                        $areas->push($area);
+                    }
+                }
+            }
+        }
+        
+        return $areas->values();
+    }
+
+    /**
      * Create order from cart (CHECKOUT)
-     * Status: pending, order_status: null
+     * SOLUSI ALTERNATIF: Gunakan restaurant_id dari item pertama
+     * Alasan: Database constraint masih NOT NULL
      */
     public function store(Request $request)
     {
@@ -130,7 +167,7 @@ class OrdersController extends Controller
 
         // Get ALL carts for user (bisa multiple restaurants)
         $carts = Cart::with(['items' => function($query) {
-            $query->with('menu');
+            $query->with('menu.restaurant');
         }])
         ->where('user_id', $user->id)
         ->get();
@@ -157,11 +194,17 @@ class OrdersController extends Controller
             // Collect ALL items dari semua restaurant
             $allItems = [];
             $totalPrice = 0;
+            $firstRestaurantId = null;  // ✅ ALTERNATIF: Simpan restaurant_id dari item pertama
 
             foreach ($cartsWithItems as $cart) {
                 foreach ($cart->items as $item) {
                     $itemPrice = (float) $item->price;
                     $itemQuantity = (int) $item->quantity;
+                    
+                    // ✅ ALTERNATIF: Ambil restaurant_id dari item pertama
+                    if ($firstRestaurantId === null && $item->menu && $item->menu->restaurant_id) {
+                        $firstRestaurantId = $item->menu->restaurant_id;
+                    }
                     
                     $allItems[] = [
                         'menu_id'  => $item->menu_id,
@@ -174,16 +217,16 @@ class OrdersController extends Controller
                 }
             }
 
-            // Create 1 order dengan:
-            // - status = pending (payment status)
-            // - order_status = null (menunggu pembayaran dikonfirmasi)
+            // ✅ ALTERNATIF: Gunakan restaurant_id dari item pertama
+            // Ini valid karena majority case adalah order dari 1 restaurant
+            // Untuk multiple restaurants, ambil dari item pertama (primary restaurant)
             $order = Orders::create([
                 'order_code'     => $orderCode,
                 'user_id'        => $user->id,
-                'restaurant_id'  => $cartsWithItems->first()->restaurant_id,
-                'total_price'    => $totalPrice,
-                'status'         => 'pending',           // Payment status
-                'order_status'   => null,                // Null sampai pembayaran confirmed
+                'restaurant_id'  => $firstRestaurantId ?? 0,  // Fallback ke 0 jika tidak ada
+                'total_price'    => (int) $totalPrice,
+                'status'         => 'pending',
+                'order_status'   => null,
                 'notes'          => $validated['notes'] ?? null
             ]);
 
@@ -191,11 +234,12 @@ class OrdersController extends Controller
             $orderItems = [];
             foreach ($allItems as $itemData) {
                 $orderItems[] = [
-                    'order_id' => $order->id,
-                    'menu_id'  => $itemData['menu_id'],
-                    'quantity' => $itemData['quantity'],
-                    'price'    => $itemData['price'],
-                    'notes'    => $itemData['notes'],
+                    'order_id'   => $order->id,
+                    'menu_id'    => $itemData['menu_id'],
+                    'quantity'   => $itemData['quantity'],
+                    'price'      => (string) $itemData['price'],
+                    'notes'      => $itemData['notes'],
+                    'is_checked' => false,
                     'created_at' => now(),
                     'updated_at' => now()
                 ];
@@ -211,8 +255,9 @@ class OrdersController extends Controller
 
             DB::commit();
 
-            // Load fresh data untuk response
-            $order = Orders::with('items.menu', 'restaurant')->find($order->id);
+            // Load fresh data dengan areas
+            $order = Orders::with(['items.menu.restaurant.area', 'user'])->find($order->id);
+            $order->areas = $this->extractAreasFromOrder($order);
 
             return response()->json([
                 'success' => true,
@@ -239,9 +284,6 @@ class OrdersController extends Controller
 
     /**
      * Update payment status
-     * Ketika pembayaran dikonfirmasi:
-     * - Jika paid: status = 'paid' & order_status = 'processing'
-     * - Jika rejected: status = 'pending' & order_status = null
      */
     public function updatePaymentStatus(Request $request, $id)
     {
@@ -263,7 +305,6 @@ class OrdersController extends Controller
                 ], 404);
             }
 
-            // Hanya bisa update dari status pending
             if ($order->status !== 'paid') {
                 return response()->json([
                     'success' => false,
@@ -275,43 +316,23 @@ class OrdersController extends Controller
 
             try {
                 if ($validated['status'] === 'paid') {
-                    // Pembayaran diterima: status = paid & order_status = processing
-                    Log::info('Updating order payment status to paid', [
-                        'order_id' => $id,
-                        'user_id' => $user->id
-                    ]);
-                    
                     $order->update([
                         'status' => 'paid',
                         'order_status' => 'processing'
                     ]);
                 } else {
-                    // Pembayaran ditolak: tetap pending (user bisa coba lagi)
-                    Log::info('Payment rejected, reverting to pending', [
-                        'order_id' => $id,
-                        'user_id' => $user->id
-                    ]);
-                    
                     $order->update([
-                        'status' => 'pending',
+                        'status' => 'rejected',
                         'order_status' => null
                     ]);
                 }
 
                 DB::commit();
-
-                // PENTING: Refresh dari database untuk memastikan data terbaru
                 $order->refresh();
-                
-                // Log untuk debugging
-                Log::info('Payment status updated successfully', [
-                    'order_id' => $order->id,
-                    'status' => $order->status,
-                    'order_status' => $order->order_status
-                ]);
 
-                // Load full data dengan relationships
-                $order = Orders::with('items.menu', 'restaurant')->find($order->id);
+                // Load dengan areas
+                $order = Orders::with(['items.menu.restaurant.area', 'user'])->find($order->id);
+                $order->areas = $this->extractAreasFromOrder($order);
 
                 return response()->json([
                     'success' => true,
@@ -327,8 +348,7 @@ class OrdersController extends Controller
         } catch (\Exception $e) {
             Log::error('Update payment status failed:', [
                 'order_id' => $id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'error' => $e->getMessage()
             ]);
 
             return response()->json([
@@ -388,7 +408,7 @@ class OrdersController extends Controller
     }
 
     /**
-     * Update order item notes (hanya untuk pending order)
+     * Update order item notes
      */
     public function updateItemNotes(Request $request, $id, $itemId)
     {
@@ -447,10 +467,10 @@ class OrdersController extends Controller
     }
 
     /**
-     * Update order status (untuk OB/Admin)
-     * Hanya bisa update jika status payment = paid
+     * Update order status (untuk Admin)
      */
-    public function updateOrderStatus(Request $request, $id) {
+    public function updateOrderStatus(Request $request, $id) 
+    {
         $validated = $request->validate([
             'order_status' => 'required|in:processing,completed,canceled'
         ]);
@@ -476,6 +496,7 @@ class OrdersController extends Controller
             $newStatus = $validated['order_status'];
 
             $allowedTransitions = [
+                null => ['processing', 'canceled'],
                 'processing' => ['completed', 'canceled'],
                 'completed' => [],
                 'canceled' => []
@@ -489,9 +510,7 @@ class OrdersController extends Controller
                 ], 400);
             }
 
-            $order->update([
-                'order_status' => $newStatus
-            ]);
+            $order->update(['order_status' => $newStatus]);
 
             return response()->json([
                 'success' => true,
@@ -511,9 +530,10 @@ class OrdersController extends Controller
     }
 
     /**
-     * Cancel order (hanya status pending)
+     * Cancel order
      */
-    public function cancel($id) {
+    public function cancel($id) 
+    {
         try {
             $user = JWTAuth::parseToken()->authenticate();
 
@@ -536,24 +556,24 @@ class OrdersController extends Controller
             }
 
             DB::beginTransaction();
+            
+            try {
+                OrderItem::where('order_id', $order->id)->delete();
+                $order->delete();
+                
+                DB::commit();
 
-            OrderItem::where('order_id', $order->id)->delete();
-            $order->delete();
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Order canceled and deleted successfully'
-            ]);
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Order canceled and deleted successfully'
+                ]);
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
 
         } catch (\Exception $e) {
-            DB::rollBack();
-
-            Log::error('Cancel order failed:', [
-                'order_id' => $id,
-                'error' => $e->getMessage()
-            ]);
+            Log::error('Cancel order failed:', ['order_id' => $id, 'error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
@@ -564,16 +584,22 @@ class OrdersController extends Controller
     }
 
     /**
-     * Get pending orders (untuk OB)
+     * Get pending orders dengan areas
      */
     public function getPendingOrders()
     {
         try {
-            $orders = Orders::with('user', 'restaurant', 'items.menu')
+            $orders = Orders::with(['user', 'items.menu.restaurant.area'])
                 ->where('order_status', 'processing')
                 ->where('status', 'paid')  
                 ->latest()
                 ->get();
+
+            // Add areas untuk setiap order
+            $orders = $orders->map(function($order) {
+                $order->areas = $this->extractAreasFromOrder($order);
+                return $order;
+            });
 
             return response()->json([
                 'success' => true,
@@ -592,7 +618,7 @@ class OrdersController extends Controller
     }
 
     /**
-     * Batch update multiple orders status (untuk OB)
+     * Batch update status
      */
     public function batchUpdateStatus(Request $request)
     {
@@ -604,19 +630,16 @@ class OrdersController extends Controller
 
         try {
             $updatedCount = Orders::whereIn('id', $validated['order_ids'])
-                ->where('order_status', 'processing')
                 ->where('status', 'paid')
                 ->update(['order_status' => $validated['order_status']]);
 
             return response()->json([
                 'success' => true,
                 'message' => "{$updatedCount} orders updated",
-                'data' => [
-                    'updated_count' => $updatedCount
-                ]
+                'data' => ['updated_count' => $updatedCount]
             ]);
         } catch (\Exception $e) {
-            Log::error('Batch update status failed:', ['error' => $e->getMessage()]);
+            Log::error('Batch update failed:', ['error' => $e->getMessage()]);
             
             return response()->json([
                 'success' => false,
@@ -626,12 +649,10 @@ class OrdersController extends Controller
         }
     }
 
-     /**
-     * Toggle order item checked status
-     * Admin bisa ceklis/unceklis item saat prepare order
+    /**
+     * Toggle item checked
      */
-
-     public function toggleItemChecked(Request $request, $orderId, $itemId)
+    public function toggleItemChecked(Request $request, $orderId, $itemId)
     {
         try {
             $order = Orders::find($orderId);
@@ -643,7 +664,6 @@ class OrdersController extends Controller
                 ], 404);
             }
 
-            // Hanya bisa ceklis jika order status = processing dan payment = paid
             if ($order->status !== 'paid' || $order->order_status !== 'processing') {
                 return response()->json([
                     'success' => false,
@@ -662,15 +682,8 @@ class OrdersController extends Controller
                 ], 404);
             }
 
-            // Toggle is_checked
             $item->is_checked = !$item->is_checked;
             $item->save();
-
-            Log::info('Item checked status updated', [
-                'order_id' => $orderId,
-                'item_id' => $itemId,
-                'is_checked' => $item->is_checked
-            ]);
 
             return response()->json([
                 'success' => true,
@@ -682,11 +695,7 @@ class OrdersController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Toggle item checked failed:', [
-                'order_id' => $orderId,
-                'item_id' => $itemId,
-                'error' => $e->getMessage()
-            ]);
+            Log::error('Toggle item checked failed:', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
@@ -697,10 +706,9 @@ class OrdersController extends Controller
     }
 
     /**
-     * Get all checked items count for an order
+     * Get checked items count
      */
-
-   public function getCheckedItemsCount($orderId)
+    public function getCheckedItemsCount($orderId)
     {
         try {
             $order = Orders::find($orderId);
@@ -726,10 +734,7 @@ class OrdersController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Get checked items count failed:', [
-                'order_id' => $orderId,
-                'error' => $e->getMessage()
-            ]);
+            Log::error('Get checked items count failed:', ['error' => $e->getMessage()]);
 
             return response()->json([
                 'success' => false,
@@ -739,16 +744,22 @@ class OrdersController extends Controller
         }
     }
 
-
     /**
-     * Admin get all orders
+     * Admin get all orders dengan areas
+     * MAIN ENDPOINT untuk OrdersPage
      */
     public function getAllOrders()
     {
         try {
-            $orders = Orders::with('user', 'restaurant', 'items.menu')
+            $orders = Orders::with(['user', 'items.menu.restaurant.area'])
                 ->latest()
                 ->get();
+
+            // Transform: add areas collection untuk setiap order
+            $orders = $orders->map(function($order) {
+                $order->areas = $this->extractAreasFromOrder($order);
+                return $order;
+            });
 
             return response()->json([
                 'success' => true,
@@ -767,7 +778,7 @@ class OrdersController extends Controller
     }
 
     /**
-     * Admin get orders by status
+     * Admin get orders by status dengan areas
      */
     public function getOrdersByStatus($status)
     {
@@ -781,10 +792,16 @@ class OrdersController extends Controller
                 ], 400);
             }
 
-            $orders = Orders::with('user', 'restaurant', 'items.menu')
+            $orders = Orders::with(['user', 'items.menu.restaurant.area'])
                 ->where('order_status', $status)
                 ->latest()
                 ->get();
+
+            // Add areas
+            $orders = $orders->map(function($order) {
+                $order->areas = $this->extractAreasFromOrder($order);
+                return $order;
+            });
 
             return response()->json([
                 'success' => true,
