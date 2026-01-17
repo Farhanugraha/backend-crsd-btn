@@ -75,6 +75,9 @@ Route::prefix('auth')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])
             ->name('auth.logout');
         
+        Route::get('session', [AuthController::class, 'session'])
+        ->name('auth.session');
+        
         Route::get('me', [AuthController::class, 'me'])
             ->name('auth.me');
         
