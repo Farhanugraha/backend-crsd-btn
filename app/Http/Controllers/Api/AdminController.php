@@ -220,9 +220,9 @@ class AdminController extends Controller
     /**
      * Get Reports
      */
-    public function getReports()
+    public function getReports(Request $request)
     {
-        try {
+         try {
             $user = auth()->guard('api')->user();
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
@@ -232,44 +232,164 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            $report = [
-                'total_orders' => Orders::count(),
-                'orders_by_status' => Orders::select('status', DB::raw('count(*) as total'))
-                    ->groupBy('status')
-                    ->get(),
-                'payment_summary' => Payments::select(
-                    'status', 
-                    DB::raw('count(*) as total'), 
-                    DB::raw('sum(amount) as total_amount')
-                )
-                    ->groupBy('status')
-                    ->get(),
-                'user_statistics' => [
-                    'total_users' => User::where('role', 'user')->count(),
-                    'total_admins' => User::where('role', 'admin')->count(),
-                    'active_users' => User::where('is_active', 1)->where('role', 'user')->count(),
-                ],
-                'top_users' => User::withCount('orders')
-                    ->where('role', 'user')
-                    ->orderBy('orders_count', 'desc')
-                    ->limit(10)
-                    ->get(['id', 'name', 'email', 'orders_count']),
-            ];
+            // Get date range from request
+            $startDateInput = $request->get('start_date');
+            $endDateInput = $request->get('end_date');
+            $reportType = $request->get('type', 'all'); // all, orders, payments, users
+
+            // Default ke bulan ini
+            if (!$startDateInput || !$endDateInput) {
+                $endDateInput = now()->toDateString();
+                $startDateInput = now()->subMonth()->toDateString();
+            }
+
+            try {
+                $startDate = Carbon::parse($startDateInput)->startOfDay();
+                $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+                if ($startDate > $endDate) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                    ], 400);
+                }
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Format tanggal tidak valid'
+                ], 400);
+            }
+
+            $reportData = [];
+
+            // Orders Report
+            if ($reportType === 'all' || $reportType === 'orders') {
+                $reportData['orders'] = [
+                    'summary' => [
+                        'total_orders' => Orders::whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'completed' => Orders::where('order_status', 'completed')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'processing' => Orders::where('order_status', 'processing')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'canceled' => Orders::where('order_status', 'canceled')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'total_value' => (int) Orders::where('status', 'paid')->whereBetween('created_at', [$startDate, $endDate])->sum('total_price'),
+                    ],
+                    'by_status' => Orders::select('order_status', DB::raw('count(*) as total'), DB::raw('sum(total_price) as total_value'))
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->groupBy('order_status')
+                        ->get(),
+                    'by_date' => Orders::select(
+                        DB::raw('DATE(created_at) as date'),
+                        DB::raw('count(*) as total'),
+                        DB::raw('sum(total_price) as total_value')
+                    )
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->groupBy('date')
+                        ->orderBy('date', 'asc')
+                        ->get(),
+                ];
+            }
+
+            // Payments Report
+            if ($reportType === 'all' || $reportType === 'payments') {
+                $reportData['payments'] = [
+                    'summary' => [
+                        'total_transactions' => Payments::whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'successful' => Payments::where('payment_status', 'success')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'pending' => Payments::where('payment_status', 'pending')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'failed' => Payments::where('payment_status', 'failed')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                        'total_amount' => (int) Payments::where('payment_status', 'success')->whereBetween('created_at', [$startDate, $endDate])->sum('amount'),
+                    ],
+                    'by_status' => Payments::select('payment_status', DB::raw('count(*) as total'), DB::raw('sum(amount) as total_amount'))
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->groupBy('payment_status')
+                        ->get(),
+                    'by_method' => Payments::select('payment_method', DB::raw('count(*) as total'), DB::raw('sum(amount) as total_amount'))
+                        ->where('payment_status', 'success')
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->groupBy('payment_method')
+                        ->get(),
+                ];
+            }
+
+            // Users Report
+            if ($reportType === 'all' || $reportType === 'users') {
+                $reportData['users'] = [
+                    'summary' => [
+                        'total_users' => User::where('role', 'user')->count(),
+                        'active_users' => User::where('role', 'user')->where('is_active', 1)->count(),
+                        'inactive_users' => User::where('role', 'user')->where('is_active', 0)->count(),
+                        'new_users' => User::where('role', 'user')->whereBetween('created_at', [$startDate, $endDate])->count(),
+                    ],
+                    'new_registrations_by_date' => User::select(
+                        DB::raw('DATE(created_at) as date'),
+                        DB::raw('count(*) as total')
+                    )
+                        ->where('role', 'user')
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->groupBy('date')
+                        ->orderBy('date', 'asc')
+                        ->get(),
+                    'top_users' => User::select('id', 'name', 'email', 'created_at')
+                        ->withCount('orders')
+                        ->where('role', 'user')
+                        ->orderBy('orders_count', 'desc')
+                        ->limit(10)
+                        ->get(),
+                ];
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Reports retrieved successfully',
-                'data' => $report
+                'message' => 'Report berhasil dimuat',
+                'data' => [
+                    'period' => [
+                        'start_date' => $startDate->format('Y-m-d'),
+                        'end_date' => $endDate->format('Y-m-d'),
+                    ],
+                    'report' => $reportData,
+                ]
             ], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil laporan',
-                'error' => $e->getMessage()
+                'message' => 'Gagal mengambil laporan: ' . $e->getMessage()
             ], 500);
         }
     }
+
+     /**
+     * Export Reports to CSV/PDF (placeholder)
+     */
+
+     public function exportReports(Request $request) {
+        try{
+            $user = auth()->guard('api')->user();
+            if(!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }  
+            
+            $format = $request->get('format', 'csv'); // or 'pdf'
+            $type = $request->get('type', 'all');
+
+              return response()->json([
+                'success' => true,
+                'message' => 'Export dimulai',
+                'data' => [
+                    'format' => $format,
+                    'type' => $type,
+                ]
+            ], 200);   
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal export laporan',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+     }
 
     /**
      * List all regular users
