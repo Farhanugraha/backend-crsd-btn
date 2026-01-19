@@ -9,13 +9,15 @@ use App\Models\Payments;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class AdminController extends Controller
 {
     /**
      * Admin Dashboard
      */
-        public function dashboard() {
+    public function dashboard()
+    {
         try {
             $user = auth()->guard('api')->user();
 
@@ -67,12 +69,11 @@ class AdminController extends Controller
             ], 500);
         }
     }
-    
 
     /**
-     * Get Statistics
+     * Get Statistics with Chart Data
      */
-    public function getStatistics()
+     public function getStatistics(Request $request)
     {
         try {
             $user = auth()->guard('api')->user();
@@ -84,55 +85,134 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            // Statistik orders per hari (7 hari terakhir)
-            $ordersPerDay = Orders::select(
-                DB::raw('DATE(created_at) as date'),
-                DB::raw('count(*) as total')
-            )
-            ->where('created_at', '>=', now()->subDays(7))
-            ->groupBy(DB::raw('DATE(created_at)'))
-            ->orderBy('date', 'asc')
-            ->get();
+            // Get date range from request
+            $startDateInput = $request->get('start_date');
+            $endDateInput = $request->get('end_date');
 
-            // Statistik revenue per hari (7 hari terakhir)
-            $revenuePerDay = Payments::select(
-                DB::raw('DATE(created_at) as date'),
-                DB::raw('sum(amount) as total')
-            )
-            ->where('status', 'confirmed')
-            ->where('created_at', '>=', now()->subDays(7))
-            ->groupBy(DB::raw('DATE(created_at)'))
-            ->orderBy('date', 'asc')
-            ->get();
+            // Default ke bulan ini jika tidak ada parameter
+            if (!$startDateInput || !$endDateInput) {
+                $endDateInput = now()->toDateString();
+                $startDateInput = now()->subMonth()->toDateString();
+            }
 
-            // Orders by status
-            $ordersByStatus = Orders::select('status', DB::raw('count(*) as total'))
-                ->groupBy('status')
-                ->get();
+            // Validate and parse dates
+            try {
+                $startDate = Carbon::parse($startDateInput)->startOfDay();
+                $endDate = Carbon::parse($endDateInput)->endOfDay();
 
-            // Top users by orders
-            $topUsers = User::withCount('orders')
-                ->where('role', 'user')
-                ->orderBy('orders_count', 'desc')
-                ->limit(5)
-                ->get(['id', 'name', 'email', 'orders_count']);
+                if ($startDate > $endDate) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                    ], 400);
+                }
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Format tanggal tidak valid'
+                ], 400);
+            }
+
+            // Total Orders in date range
+            $totalOrders = Orders::whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+            
+            // Total Revenue (paid orders) in date range
+            $totalRevenue = (int) Orders::where('status', 'paid')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->sum('total_price');
+            
+            // Orders by order_status
+            $completedOrders = Orders::where('order_status', 'completed')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+                
+            $processingOrders = Orders::where('order_status', 'processing')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+                
+            $canceledOrders = Orders::where('order_status', 'canceled')
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->count();
+            
+            // Average order value
+            $averageOrderValue = $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0;
+            
+            // Today's statistics
+            $todayStart = now()->startOfDay();
+            $todayEnd = now()->endOfDay();
+            $todayOrders = Orders::whereBetween('created_at', [$todayStart, $todayEnd])
+                ->count();
+            $todayRevenue = (int) Orders::where('status', 'paid')
+                ->whereBetween('created_at', [$todayStart, $todayEnd])
+                ->sum('total_price');
+            
+            // Calculate growth (previous period vs current period)
+            $periodDays = $endDate->diffInDays($startDate) + 1;
+            $previousPeriodStart = (clone $startDate)->subDays($periodDays)->startOfDay();
+            $previousPeriodEnd = (clone $startDate)->subDay()->endOfDay();
+            
+            $previousPeriodRevenue = (int) Orders::where('status', 'paid')
+                ->whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd])
+                ->sum('total_price');
+                
+            $previousPeriodOrders = Orders::whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd])
+                ->count();
+            
+            $revenueGrowth = $previousPeriodRevenue > 0 
+                ? (($totalRevenue - $previousPeriodRevenue) / $previousPeriodRevenue * 100)
+                : ($totalRevenue > 0 ? 100 : 0);
+            
+            $orderGrowth = $previousPeriodOrders > 0
+                ? (($totalOrders - $previousPeriodOrders) / $previousPeriodOrders * 100)
+                : ($totalOrders > 0 ? 100 : 0);
+
+            // Chart data - Orders and Revenue per day
+            $chartData = [];
+            $currentDate = clone $startDate;
+            
+            while ($currentDate <= $endDate) {
+                $dayStart = (clone $currentDate)->startOfDay();
+                $dayEnd = (clone $currentDate)->endOfDay();
+                
+                $dayOrders = Orders::whereBetween('created_at', [$dayStart, $dayEnd])
+                    ->count();
+                    
+                $dayRevenue = (int) Orders::where('status', 'paid')
+                    ->whereBetween('created_at', [$dayStart, $dayEnd])
+                    ->sum('total_price');
+                
+                $chartData[] = [
+                    'date' => $currentDate->format('d M'),
+                    'orders' => $dayOrders,
+                    'revenue' => $dayRevenue
+                ];
+                
+                $currentDate->addDay();
+            }
 
             return response()->json([
                 'success' => true,
-                'message' => 'Statistics retrieved successfully',
+                'message' => 'Statistik berhasil dimuat',
                 'data' => [
-                    'orders_per_day' => $ordersPerDay,
-                    'revenue_per_day' => $revenuePerDay,
-                    'orders_by_status' => $ordersByStatus,
-                    'top_users' => $topUsers,
+                    'totalOrders' => $totalOrders,
+                    'totalRevenue' => $totalRevenue,
+                    'completedOrders' => $completedOrders,
+                    'processingOrders' => $processingOrders,
+                    'canceledOrders' => $canceledOrders,
+                    'averageOrderValue' => $averageOrderValue,
+                    'todayOrders' => $todayOrders,
+                    'todayRevenue' => $todayRevenue,
+                    'revenueGrowth' => round($revenueGrowth, 2),
+                    'orderGrowth' => round($orderGrowth, 2),
+                    'chartData' => $chartData,
                 ]
             ], 200);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil statistik',
-                'error' => $e->getMessage()
+                'message' => 'Gagal mengambil statistik: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -192,7 +272,7 @@ class AdminController extends Controller
     }
 
     /**
-     * List all regular users (admin can view all users)
+     * List all regular users
      */
     public function listUsers(Request $request)
     {
@@ -204,8 +284,7 @@ class AdminController extends Controller
 
             $query = User::query();
 
-            // Filter by role - admin hanya bisa lihat regular users
-            // superadmin bisa lihat semua
+            // Filter by role
             $user = auth()->guard('api')->user();
             if ($user->role === 'admin') {
                 $query->where('role', 'user');
@@ -255,7 +334,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Admin hanya bisa lihat regular users
             $authUser = auth()->guard('api')->user();
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
@@ -279,7 +357,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Update user (admin can only update regular users)
+     * Update user
      */
     public function updateUser(Request $request, $id)
     {
@@ -293,7 +371,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Admin tidak bisa update admin/superadmin
             $authUser = auth()->guard('api')->user();
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
@@ -318,7 +395,6 @@ class AdminController extends Controller
                 ], 422);
             }
 
-            // Update fields
             if ($request->has('name')) {
                 $user->name = $request->name;
             }
@@ -352,7 +428,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Delete user (admin can only delete regular users)
+     * Delete user
      */
     public function deleteUser($id)
     {
@@ -366,7 +442,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Admin tidak bisa delete admin/superadmin
             $authUser = auth()->guard('api')->user();
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
@@ -405,7 +480,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Admin tidak bisa deactivate admin/superadmin
             $authUser = auth()->guard('api')->user();
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
@@ -445,7 +519,6 @@ class AdminController extends Controller
                 ], 404);
             }
 
-            // Admin tidak bisa activate admin/superadmin
             $authUser = auth()->guard('api')->user();
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([

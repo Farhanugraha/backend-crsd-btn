@@ -77,7 +77,6 @@ Route::prefix('auth')->group(function () {
         
         Route::get('session', [AuthController::class, 'session'])
         ->name('auth.session');
-        
         Route::get('me', [AuthController::class, 'me'])
             ->name('auth.me');
         
