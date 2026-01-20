@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Orders;
+use App\Models\OrderItem;
 use App\Models\User;
 use App\Models\Payments;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
@@ -52,7 +54,7 @@ class AdminController extends Controller
                         'canceled' => $canceledOrders,
                     ],
                     'payments' => [
-                        'total_revenue' => $totalRevenue,
+                        'total_revenue' => $totalRevenue ?? 0,
                         'pending_payments' => $pendingPayments,
                     ],
                     'users' => [
@@ -62,6 +64,7 @@ class AdminController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
+            Log::error('Dashboard error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal memuat dashboard',
@@ -72,8 +75,9 @@ class AdminController extends Controller
 
     /**
      * Get Statistics with Chart Data
+     * GET /api/admin/statistics?start_date=2025-12-19&end_date=2026-01-19
      */
-     public function getStatistics(Request $request)
+    public function getStatistics(Request $request)
     {
         try {
             $user = auth()->guard('api')->user();
@@ -210,6 +214,7 @@ class AdminController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Statistics error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal mengambil statistik: ' . $e->getMessage()
@@ -219,10 +224,11 @@ class AdminController extends Controller
 
     /**
      * Get Reports
+     * GET /api/admin/reports
      */
     public function getReports(Request $request)
     {
-         try {
+        try {
             $user = auth()->guard('api')->user();
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
@@ -232,149 +238,254 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            // Get date range from request
+            // Get date range from request (optional)
             $startDateInput = $request->get('start_date');
             $endDateInput = $request->get('end_date');
-            $reportType = $request->get('type', 'all'); // all, orders, payments, users
+            
+            $query = Orders::query();
 
-            // Default ke bulan ini
-            if (!$startDateInput || !$endDateInput) {
-                $endDateInput = now()->toDateString();
-                $startDateInput = now()->subMonth()->toDateString();
-            }
-
-            try {
-                $startDate = Carbon::parse($startDateInput)->startOfDay();
-                $endDate = Carbon::parse($endDateInput)->endOfDay();
-
-                if ($startDate > $endDate) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
-                    ], 400);
+            // Filter by date range jika ada
+            if ($startDateInput && $endDateInput) {
+                try {
+                    $startDate = Carbon::parse($startDateInput)->startOfDay();
+                    $endDate = Carbon::parse($endDateInput)->endOfDay();
+                    
+                    if ($startDate <= $endDate) {
+                        $query->whereBetween('created_at', [$startDate, $endDate]);
+                    }
+                } catch (\Exception $e) {
+                    // Ignore invalid dates
                 }
-            } catch (\Exception $e) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Format tanggal tidak valid'
-                ], 400);
             }
 
-            $reportData = [];
+            // Total orders
+            $totalOrders = $query->count();
 
-            // Orders Report
-            if ($reportType === 'all' || $reportType === 'orders') {
-                $reportData['orders'] = [
-                    'summary' => [
-                        'total_orders' => Orders::whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'completed' => Orders::where('order_status', 'completed')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'processing' => Orders::where('order_status', 'processing')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'canceled' => Orders::where('order_status', 'canceled')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'total_value' => (int) Orders::where('status', 'paid')->whereBetween('created_at', [$startDate, $endDate])->sum('total_price'),
-                    ],
-                    'by_status' => Orders::select('order_status', DB::raw('count(*) as total'), DB::raw('sum(total_price) as total_value'))
-                        ->whereBetween('created_at', [$startDate, $endDate])
-                        ->groupBy('order_status')
-                        ->get(),
-                    'by_date' => Orders::select(
-                        DB::raw('DATE(created_at) as date'),
-                        DB::raw('count(*) as total'),
-                        DB::raw('sum(total_price) as total_value')
-                    )
-                        ->whereBetween('created_at', [$startDate, $endDate])
-                        ->groupBy('date')
-                        ->orderBy('date', 'asc')
-                        ->get(),
-                ];
-            }
+            // Orders by order_status
+            $ordersByStatus = Orders::selectRaw('order_status as status, COUNT(*) as total')
+                ->groupBy('order_status')
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'status' => $item->status ?? 'unknown',
+                        'total' => $item->total,
+                    ];
+                })
+                ->toArray();
 
-            // Payments Report
-            if ($reportType === 'all' || $reportType === 'payments') {
-                $reportData['payments'] = [
-                    'summary' => [
-                        'total_transactions' => Payments::whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'successful' => Payments::where('payment_status', 'success')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'pending' => Payments::where('payment_status', 'pending')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'failed' => Payments::where('payment_status', 'failed')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                        'total_amount' => (int) Payments::where('payment_status', 'success')->whereBetween('created_at', [$startDate, $endDate])->sum('amount'),
-                    ],
-                    'by_status' => Payments::select('payment_status', DB::raw('count(*) as total'), DB::raw('sum(amount) as total_amount'))
-                        ->whereBetween('created_at', [$startDate, $endDate])
-                        ->groupBy('payment_status')
-                        ->get(),
-                    'by_method' => Payments::select('payment_method', DB::raw('count(*) as total'), DB::raw('sum(amount) as total_amount'))
-                        ->where('payment_status', 'success')
-                        ->whereBetween('created_at', [$startDate, $endDate])
-                        ->groupBy('payment_method')
-                        ->get(),
-                ];
-            }
+            // Payment summary
+            $paymentSummary = Payments::selectRaw('payment_status as status, COUNT(*) as total, SUM(amount) as total_amount')
+                ->groupBy('payment_status')
+                ->get()
+                ->map(function ($item) {
+                    return [
+                        'status' => $item->status ?? 'unknown',
+                        'total' => $item->total,
+                        'total_amount' => (int) ($item->total_amount ?? 0),
+                    ];
+                })
+                ->toArray();
 
-            // Users Report
-            if ($reportType === 'all' || $reportType === 'users') {
-                $reportData['users'] = [
-                    'summary' => [
-                        'total_users' => User::where('role', 'user')->count(),
-                        'active_users' => User::where('role', 'user')->where('is_active', 1)->count(),
-                        'inactive_users' => User::where('role', 'user')->where('is_active', 0)->count(),
-                        'new_users' => User::where('role', 'user')->whereBetween('created_at', [$startDate, $endDate])->count(),
-                    ],
-                    'new_registrations_by_date' => User::select(
-                        DB::raw('DATE(created_at) as date'),
-                        DB::raw('count(*) as total')
-                    )
-                        ->where('role', 'user')
-                        ->whereBetween('created_at', [$startDate, $endDate])
-                        ->groupBy('date')
-                        ->orderBy('date', 'asc')
-                        ->get(),
-                    'top_users' => User::select('id', 'name', 'email', 'created_at')
-                        ->withCount('orders')
-                        ->where('role', 'user')
-                        ->orderBy('orders_count', 'desc')
-                        ->limit(10)
-                        ->get(),
-                ];
-            }
+            // User statistics
+            $userStatistics = [
+                'total_users' => User::where('role', 'user')->count(),
+                'total_admins' => User::whereIn('role', ['admin', 'superadmin'])->count(),
+                'active_users' => User::where('is_active', 1)->where('role', 'user')->count(),
+            ];
+
+            // Top users with order count
+            $topUsers = User::withCount('orders')
+                ->where('role', 'user')
+                ->orderBy('orders_count', 'desc')
+                ->limit(10)
+                ->get()
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'orders_count' => $user->orders_count ?? 0,
+                    ];
+                })
+                ->toArray();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Report berhasil dimuat',
+                'message' => 'Reports retrieved successfully',
                 'data' => [
-                    'period' => [
-                        'start_date' => $startDate->format('Y-m-d'),
-                        'end_date' => $endDate->format('Y-m-d'),
-                    ],
-                    'report' => $reportData,
+                    'total_orders' => $totalOrders,
+                    'orders_by_status' => $ordersByStatus,
+                    'payment_summary' => $paymentSummary,
+                    'user_statistics' => $userStatistics,
+                    'top_users' => $topUsers,
                 ]
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('getReports error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil laporan: ' . $e->getMessage()
+                'message' => 'Gagal mengambil laporan: ' . $e->getMessage(),
+                'error' => $e->getMessage()
             ], 500);
         }
     }
 
-     /**
+    /**
+     * Get Orders Detail with Items (untuk export)
+     * GET /api/admin/orders-detail?start_date=2025-12-19&end_date=2026-01-19
+     */
+    public function getOrdersDetail(Request $request)
+{
+    try {
+        $user = auth()->guard('api')->user();
+
+        if (!in_array($user->role, ['admin', 'superadmin'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses'
+            ], 403);
+        }
+
+        // Get date range from request
+        $startDateInput = $request->get('start_date');
+        $endDateInput = $request->get('end_date');
+
+        // Default ke bulan ini
+        if (!$startDateInput || !$endDateInput) {
+            $endDateInput = now()->toDateString();
+            $startDateInput = now()->subMonth()->toDateString();
+        }
+
+        try {
+            $startDate = Carbon::parse($startDateInput)->startOfDay();
+            $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+            if ($startDate > $endDate) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Format tanggal tidak valid'
+            ], 400);
+        }
+
+        // Get all orders with items and menu
+        $orders = Orders::with(['items.menu', 'user'])
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        // Group by date
+        $ordersByDate = [];
+        $cumulativeTotal = 0;
+
+        $orders->groupBy(function($order) {
+            return $order->created_at->format('Y-m-d');
+        })->each(function($dayOrders, $date) use (&$cumulativeTotal, &$ordersByDate) {
+            $dailyTotal = 0;
+            
+            $mappedOrders = $dayOrders->map(function($order) use (&$dailyTotal) {
+                $orderTotal = (int) $order->total_price;
+                $dailyTotal += $orderTotal;
+                
+                return [
+                    'order_id' => (int) $order->id,
+                    'order_number' => $order->order_code ?? 'ORD-' . $order->id,
+                    'customer' => $order->user->name ?? 'Guest',
+                    'status' => $order->order_status ?? 'pending',
+                    'items' => $order->items->map(function($item) {
+                        $price = (int) ($item->price ?? 0);
+                        $quantity = (int) ($item->quantity ?? 1);
+                        $subtotal = $price * $quantity;
+                        
+                        return [
+                            'name' => $item->menu?->name ?? 'Unknown Product',
+                            'quantity' => $quantity,
+                            'price' => $price,
+                            'subtotal' => $subtotal
+                        ];
+                    })->toArray(),
+                    'total' => $orderTotal,
+                    'created_at' => $order->created_at->format('Y-m-d H:i:s')
+                ];
+            })->toArray();
+            
+            $cumulativeTotal += $dailyTotal;
+            
+            $ordersByDate[] = [
+                'date' => $date,
+                'total_orders' => count($mappedOrders),
+                'daily_total' => (int) $dailyTotal,
+                'cumulative_total' => (int) $cumulativeTotal,
+                'orders' => $mappedOrders
+            ];
+        });
+
+        // Overall summary
+        $totalOrders = $orders->count();
+        $overallTotal = (int) $orders->sum('total_price');
+
+        // Debug log
+        Log::info('Orders Detail Response', [
+            'total_orders' => $totalOrders,
+            'total_revenue' => $overallTotal,
+            'orders_by_date_count' => count($ordersByDate),
+            'start_date' => $startDate->format('Y-m-d'),
+            'end_date' => $endDate->format('Y-m-d')
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Orders detail retrieved successfully',
+            'data' => [
+                'period' => [
+                    'start_date' => $startDate->format('Y-m-d'),
+                    'end_date' => $endDate->format('Y-m-d'),
+                ],
+                'summary' => [
+                    'total_orders' => $totalOrders,
+                    'total_revenue' => $overallTotal,
+                    'average_order_value' => $totalOrders > 0 ? (int) ($overallTotal / $totalOrders) : 0,
+                ],
+                'orders_by_date' => $ordersByDate
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        Log::error('getOrdersDetail error: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString()
+        ]);
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mengambil detail orders: ' . $e->getMessage(),
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+
+    /**
      * Export Reports to CSV/PDF (placeholder)
      */
-
-     public function exportReports(Request $request) {
-        try{
+    public function exportReports(Request $request) 
+    {
+        try {
             $user = auth()->guard('api')->user();
-            if(!in_array($user->role, ['admin', 'superadmin'])) {
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Anda tidak memiliki akses'
                 ], 403);
             }  
             
-            $format = $request->get('format', 'csv'); // or 'pdf'
+            $format = $request->get('format', 'csv');
             $type = $request->get('type', 'all');
 
-              return response()->json([
+            return response()->json([
                 'success' => true,
                 'message' => 'Export dimulai',
                 'data' => [
@@ -389,7 +500,7 @@ class AdminController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
-     }
+    }
 
     /**
      * List all regular users
@@ -404,13 +515,11 @@ class AdminController extends Controller
 
             $query = User::query();
 
-            // Filter by role
             $user = auth()->guard('api')->user();
             if ($user->role === 'admin') {
                 $query->where('role', 'user');
             }
 
-            // Search by name or email
             if ($search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
@@ -418,7 +527,6 @@ class AdminController extends Controller
                 });
             }
 
-            // Filter by active status
             if ($status !== null) {
                 $query->where('is_active', $status);
             }

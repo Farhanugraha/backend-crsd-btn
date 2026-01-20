@@ -194,14 +194,13 @@ class OrdersController extends Controller
             // Collect ALL items dari semua restaurant
             $allItems = [];
             $totalPrice = 0;
-            $firstRestaurantId = null;  // ✅ ALTERNATIF: Simpan restaurant_id dari item pertama
+            $firstRestaurantId = null;  
 
             foreach ($cartsWithItems as $cart) {
                 foreach ($cart->items as $item) {
                     $itemPrice = (float) $item->price;
                     $itemQuantity = (int) $item->quantity;
-                    
-                    // ✅ ALTERNATIF: Ambil restaurant_id dari item pertama
+               
                     if ($firstRestaurantId === null && $item->menu && $item->menu->restaurant_id) {
                         $firstRestaurantId = $item->menu->restaurant_id;
                     }
@@ -217,9 +216,7 @@ class OrdersController extends Controller
                 }
             }
 
-            // ✅ ALTERNATIF: Gunakan restaurant_id dari item pertama
-            // Ini valid karena majority case adalah order dari 1 restaurant
-            // Untuk multiple restaurants, ambil dari item pertama (primary restaurant)
+     
             $order = Orders::create([
                 'order_code'     => $orderCode,
                 'user_id'        => $user->id,

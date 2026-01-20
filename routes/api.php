@@ -76,7 +76,8 @@ Route::prefix('auth')->group(function () {
             ->name('auth.logout');
         
         Route::get('session', [AuthController::class, 'session'])
-        ->name('auth.session');
+            ->name('auth.session');
+        
         Route::get('me', [AuthController::class, 'me'])
             ->name('auth.me');
         
@@ -108,7 +109,6 @@ Route::prefix('areas')->group(function () {
         ->where('id', '[0-9]+')
         ->name('areas.restaurants');
     
-    // SUPERADMIN ONLY - Update with role middleware
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [AreaController::class, 'store'])
             ->name('areas.store');
@@ -147,7 +147,6 @@ Route::prefix('restaurants')->group(function () {
         ->where('id', '[0-9]+')
         ->name('restaurants.stats');
     
-    // SUPERADMIN ONLY - Update with role middleware
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::get('all', [RestaurantController::class, 'getAllRestaurants'])
             ->name('restaurants.all');
@@ -183,7 +182,6 @@ Route::prefix('menus')->group(function () {
         ->where('id', '[0-9]+')
         ->name('menus.show');
     
-    // SUPERADMIN ONLY - Update with role middleware
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [MenuController::class, 'store'])
             ->name('menus.store');
@@ -242,7 +240,6 @@ Route::prefix('cart')
 Route::prefix('orders')
     ->middleware(['auth:api'])
     ->group(function () {
-        // User hanya bisa akses order mereka sendiri
         Route::get('', [OrdersController::class, 'index'])
             ->name('orders.index');
         
@@ -299,13 +296,27 @@ Route::prefix('payments')
 | ADMIN ROUTES - ADMIN & SUPERADMIN
 |--------------------------------------------------------------------------
 */
-Route::prefix('admin')
-    ->middleware(['auth:api', 'role:admin,superadmin'])
+Route::middleware(['auth:api', 'role:admin,superadmin'])
+    ->prefix('admin')
     ->group(function () {
+        // Dashboard
         Route::get('dashboard', [AdminController::class, 'dashboard'])
             ->name('admin.dashboard');
         
-        // Orders Management
+        // Top-level Statistics & Reports routes (HARUS SEBELUM nested groups)
+        Route::get('statistics', [AdminController::class, 'getStatistics'])
+            ->name('admin.statistics');
+        
+        Route::get('reports', [AdminController::class, 'getReports'])
+            ->name('admin.reports');
+        
+        Route::get('orders-detail', [AdminController::class, 'getOrdersDetail'])
+            ->name('admin.ordersDetail');
+        
+        Route::post('export-reports', [AdminController::class, 'exportReports'])
+            ->name('admin.exportReports');
+        
+        // Orders Management (nested)
         Route::prefix('orders')->group(function () {
             Route::get('', [OrdersController::class, 'getAllOrders'])
                 ->name('admin.orders.index');
@@ -337,15 +348,11 @@ Route::prefix('admin')
                 ->name('admin.orders.checkedItemsCount');
         });
         
-        // Payments Management
+        // Payments Management (nested)
         Route::prefix('payments')->group(function () {
-            // Route yang lebih SPESIFIK harus DULUAN!
-            
-            // 1. GET semua payments (list)
             Route::get('', [PaymentsController::class, 'getAllPayments'])
                 ->name('admin.payments.index');
             
-            // 2. PUT untuk confirm/reject (by payment ID)
             Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.confirm');
@@ -354,23 +361,10 @@ Route::prefix('admin')
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.reject');
             
-            // 3. GET detail payment (by payment ID) - HARUS SETELAH confirm/reject!
             Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.show');
-            
-            // 4. GET payment by order ID (alternatif)
-            // Route::get('order/{orderId}', [PaymentsController::class, 'getPaymentByOrder'])
-            //     ->where('orderId', '[0-9]+')
-            //     ->name('admin.payments.showByOrder');
         });
-        
-        // Statistics & Reports
-        Route::get('statistics', [AdminController::class, 'getStatistics'])
-            ->name('admin.statistics');
-        
-        Route::get('reports', [AdminController::class, 'getReports'])
-            ->name('admin.reports');
     });
 
 /*
@@ -378,8 +372,8 @@ Route::prefix('admin')
 | SUPERADMIN ROUTES - SUPERADMIN ONLY
 |--------------------------------------------------------------------------
 */
-Route::prefix('superadmin')
-    ->middleware(['auth:api', 'role:superadmin'])
+Route::middleware(['auth:api', 'role:superadmin'])
+    ->prefix('superadmin')
     ->group(function () {
         Route::get('dashboard', [SuperAdminController::class, 'dashboard'])
             ->name('superadmin.dashboard');
