@@ -109,6 +109,7 @@ Route::prefix('areas')->group(function () {
         ->where('id', '[0-9]+')
         ->name('areas.restaurants');
     
+    // SUPERADMIN ONLY - Area Management
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [AreaController::class, 'store'])
             ->name('areas.store');
@@ -147,6 +148,7 @@ Route::prefix('restaurants')->group(function () {
         ->where('id', '[0-9]+')
         ->name('restaurants.stats');
     
+    // SUPERADMIN ONLY - Restaurant Management
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::get('all', [RestaurantController::class, 'getAllRestaurants'])
             ->name('restaurants.all');
@@ -182,6 +184,7 @@ Route::prefix('menus')->group(function () {
         ->where('id', '[0-9]+')
         ->name('menus.show');
     
+    // SUPERADMIN ONLY - Menu Management
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [MenuController::class, 'store'])
             ->name('menus.store');
@@ -294,6 +297,7 @@ Route::prefix('payments')
 /*
 |--------------------------------------------------------------------------
 | ADMIN ROUTES - ADMIN & SUPERADMIN
+| Akses Admin untuk: Orders, Payments, Statistics, Reports
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api', 'role:admin,superadmin'])
@@ -303,7 +307,7 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
         Route::get('dashboard', [AdminController::class, 'dashboard'])
             ->name('admin.dashboard');
         
-        // Top-level Statistics & Reports routes (HARUS SEBELUM nested groups)
+        // Statistics & Reports
         Route::get('statistics', [AdminController::class, 'getStatistics'])
             ->name('admin.statistics');
         
@@ -316,7 +320,7 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
         Route::post('export-reports', [AdminController::class, 'exportReports'])
             ->name('admin.exportReports');
         
-        // Orders Management (nested)
+        // Orders Management
         Route::prefix('orders')->group(function () {
             Route::get('', [OrdersController::class, 'getAllOrders'])
                 ->name('admin.orders.index');
@@ -348,7 +352,7 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
                 ->name('admin.orders.checkedItemsCount');
         });
         
-        // Payments Management (nested)
+        // Payments Management
         Route::prefix('payments')->group(function () {
             Route::get('', [PaymentsController::class, 'getAllPayments'])
                 ->name('admin.payments.index');
@@ -365,11 +369,38 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.show');
         });
+        
+        // User Management - HANYA SUPERADMIN
+        Route::middleware('role:superadmin')->prefix('users')->group(function () {
+            Route::get('', [SuperAdminController::class, 'listAllUsers'])
+                ->name('admin.users.index');
+            
+            Route::get('{id}', [SuperAdminController::class, 'showUser'])
+                ->where('id', '[0-9]+')
+                ->name('admin.users.show');
+            
+            Route::post('{id}/role', [SuperAdminController::class, 'changeUserRole'])
+                ->where('id', '[0-9]+')
+                ->name('admin.users.changeRole');
+            
+            Route::post('{id}/deactivate', [SuperAdminController::class, 'deactivateUser'])
+                ->where('id', '[0-9]+')
+                ->name('admin.users.deactivate');
+            
+            Route::post('{id}/activate', [SuperAdminController::class, 'activateUser'])
+                ->where('id', '[0-9]+')
+                ->name('admin.users.activate');
+            
+            Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
+                ->where('id', '[0-9]+')
+                ->name('admin.users.delete');
+        });
     });
 
 /*
 |--------------------------------------------------------------------------
 | SUPERADMIN ROUTES - SUPERADMIN ONLY
+| Akses eksklusif untuk fitur superadmin
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api', 'role:superadmin'])
