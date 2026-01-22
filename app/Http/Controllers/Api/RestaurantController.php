@@ -7,12 +7,16 @@ use App\Models\Restaurant;
 use App\Models\Area;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Auth;
 
 class RestaurantController extends Controller
 {
     /**
-     * Display a listing of restaurants (Public)
-     * GET /api/restaurants?area_id=1&page=1&per_page=10
+     * Display a listing of restaurants
+     * GET /api/restaurants?page=1&per_page=10
+     * 
+     * Public: hanya restoran buka
+     * Admin/Superadmin: semua restoran
      */
     public function index(Request $request)
     {
@@ -20,8 +24,14 @@ class RestaurantController extends Controller
             $page = $request->get('page', 1);
             $perPage = $request->get('per_page', 10);
             $areaId = $request->get('area_id');
+            $user = Auth::user();
 
-            $query = Restaurant::with('area')->where('is_open', true);
+            $query = Restaurant::with('area');
+
+            // Jika user bukan admin/superadmin, hanya tampilkan yang buka
+            if (!$user || !in_array($user->role, ['admin', 'superadmin'])) {
+                $query->where('is_open', true);
+            }
 
             // Filter by area_id if provided
             if ($areaId) {
@@ -31,7 +41,8 @@ class RestaurantController extends Controller
             // Add menu count
             $query->withCount('menus');
 
-            $restaurants = $query->paginate($perPage, ['*'], 'page', $page);
+            // Order by latest
+            $restaurants = $query->latest()->paginate($perPage, ['*'], 'page', $page);
 
             return response()->json([
                 'success' => true,
@@ -48,44 +59,7 @@ class RestaurantController extends Controller
     }
 
     /**
-     * Get all restaurants (for admin/superadmin - includes closed restaurants)
-     * GET /api/restaurants/all
-     */
-    public function getAllRestaurants(Request $request)
-    {
-        try {
-            $page = $request->get('page', 1);
-            $perPage = $request->get('per_page', 10);
-            $areaId = $request->get('area_id');
-
-            $query = Restaurant::with('area');
-
-            // Filter by area_id if provided
-            if ($areaId) {
-                $query->where('area_id', $areaId);
-            }
-
-            // Add menu count
-            $query->withCount('menus');
-
-            $restaurants = $query->paginate($perPage, ['*'], 'page', $page);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'All restaurants retrieved successfully',
-                'data' => $restaurants
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve restaurants',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get restaurants by area (Public)
+     * Get restaurants by area (Public - hanya yang buka)
      * GET /api/restaurants/area/{areaId}
      */
     public function getByArea($areaId)
@@ -98,6 +72,7 @@ class RestaurantController extends Controller
                 ->where('is_open', true)
                 ->with('area')
                 ->withCount('menus')
+                ->latest()
                 ->get();
 
             return response()->json([
@@ -194,6 +169,7 @@ class RestaurantController extends Controller
 
             $restaurant = Restaurant::create($data);
             $restaurant->load('area');
+            $restaurant->loadCount('menus');
 
             return response()->json([
                 'success' => true,
@@ -243,6 +219,7 @@ class RestaurantController extends Controller
 
             $restaurant->update($validator->validated());
             $restaurant->load('area');
+            $restaurant->loadCount('menus');
 
             return response()->json([
                 'success' => true,
@@ -274,9 +251,13 @@ class RestaurantController extends Controller
                 ], 404);
             }
 
+            // Toggle is_open
             $restaurant->is_open = !$restaurant->is_open;
             $restaurant->save();
+            
+            // Refresh data dengan relasi
             $restaurant->load('area');
+            $restaurant->loadCount('menus');
 
             return response()->json([
                 'success' => true,
@@ -316,7 +297,7 @@ class RestaurantController extends Controller
                 ], 400);
             }
 
-            // Check if restaurant has active orders
+            // Check if restaurant has active carts
             if ($restaurant->carts()->count() > 0) {
                 return response()->json([
                     'success' => false,
@@ -360,7 +341,7 @@ class RestaurantController extends Controller
                 'available_menus' => $restaurant->menus()->where('is_available', true)->count(),
                 'unavailable_menus' => $restaurant->menus()->where('is_available', false)->count(),
                 'total_carts' => $restaurant->carts()->count(),
-                'is_open' => $restaurant->is_open
+                'is_open' => (bool) $restaurant->is_open
             ];
 
             return response()->json([
@@ -381,7 +362,7 @@ class RestaurantController extends Controller
     }
 
     /**
-     * Search restaurants by name (Public)
+     * Search restaurants by name (Public - hanya yang buka)
      * GET /api/restaurants/search?q=nama&area_id=1
      */
     public function search(Request $request)
@@ -406,7 +387,7 @@ class RestaurantController extends Controller
                 $restaurantsQuery->where('area_id', $areaId);
             }
 
-            $restaurants = $restaurantsQuery->withCount('menus')->get();
+            $restaurants = $restaurantsQuery->withCount('menus')->latest()->get();
 
             return response()->json([
                 'success' => true,
