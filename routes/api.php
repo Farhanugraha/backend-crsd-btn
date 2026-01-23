@@ -200,6 +200,9 @@ Route::prefix('menus')->group(function () {
         Route::delete('{id}', [MenuController::class, 'destroy'])
             ->where('id', '[0-9]+')
             ->name('menus.destroy');
+
+        Route::post('upload-image', [MenuController::class, 'uploadImage'])
+            ->name('menus.uploadImage');
     });
 });
 
