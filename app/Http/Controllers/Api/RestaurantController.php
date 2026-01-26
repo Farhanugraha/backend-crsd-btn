@@ -69,7 +69,6 @@ class RestaurantController extends Controller
             $area = Area::findOrFail($areaId);
             
             $restaurants = Restaurant::where('area_id', $areaId)
-                ->where('is_open', true)
                 ->with('area')
                 ->withCount('menus')
                 ->latest()
