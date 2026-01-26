@@ -118,12 +118,12 @@ class RestaurantController extends Controller
                     'success' => false,
                     'message' => 'Restaurant not found'
                 ], 404);
-            }
+                }
 
-            // Add menus count
-            $restaurant->loadCount('menus');
+                // Add menus count
+                $restaurant->loadCount('menus');
 
-            return response()->json([
+                return response()->json([
                 'success' => true,
                 'message' => 'Restaurant retrieved successfully',
                 'data' => $restaurant
