@@ -146,6 +146,248 @@ class SuperAdminController extends Controller
     }
 
     /**
+     * Create new user (by superadmin)
+     * POST /api/superadmin/users
+     * 
+     * Request Body:
+     * {
+     *   "name": "string (required)",
+     *   "email": "string (required|email)",
+     *   "password": "string (required|min:6)",
+     *   "password_confirmation": "string (required)",
+     *   "phone": "string (optional)",
+     *   "role": "string (required|in:user,admin,superadmin)",
+     *   "divisi": "string (optional)",
+     *   "unit_kerja": "string (optional)"
+     * }
+     * 
+     * User yang dibuat oleh superadmin langsung terverifikasi (email_verified_at otomatis terisi)
+     */
+    public function createUser(Request $request)
+    {
+        try {
+            // Validate the request
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|email|max:255|unique:users',
+                'password' => [
+                    'required',
+                    'min:6',
+                    'confirmed',
+                    Password::defaults()
+                ],
+                'password_confirmation' => 'required|same:password',
+                'phone' => 'nullable|string|max:20',
+                'role' => 'required|in:user,admin,superadmin',
+                'divisi' => 'nullable|string|max:255',
+                'unit_kerja' => 'nullable|string|max:100',
+            ], [
+                'password.confirmed' => 'Password dan konfirmasi password tidak cocok',
+                'email.unique' => 'Email sudah terdaftar',
+                'role.in' => 'Role harus user, admin, atau superadmin'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Create user with email_verified_at automatically set
+            $user = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+                'phone' => $request->phone,
+                'role' => $request->role,
+                'divisi' => $request->divisi,
+                'unit_kerja' => $request->unit_kerja,
+                'email_verified_at' => now(), // Directly verified by superadmin
+            ]);
+
+            // Log the action
+            Log::info("User created by superadmin: {$user->name} ({$user->email}) with role: {$user->role}");
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pengguna berhasil dibuat',
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'status' => 'aktif',
+                    'created_at' => $user->created_at->format('Y-m-d H:i:s')
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            Log::error('Create User Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membuat pengguna',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update existing user
+     * PUT /api/superadmin/users/{id}
+     * 
+     * Request Body:
+     * {
+     *   "name": "string (optional)",
+     *   "email": "string (optional|email)",
+     *   "phone": "string (optional)",
+     *   "role": "string (optional|in:user,admin,superadmin)",
+     *   "divisi": "string (optional)",
+     *   "unit_kerja": "string (optional)"
+     * }
+     */
+    public function updateUser(Request $request, $id)
+    {
+        try {
+            $user = User::findOrFail($id);
+
+            // Validate the request
+            $validator = Validator::make($request->all(), [
+                'name' => 'sometimes|string|max:255',
+                'email' => 'sometimes|email|max:255|unique:users,email,' . $user->id,
+                'phone' => 'nullable|string|max:20',
+                'role' => 'sometimes|in:user,admin,superadmin',
+                'divisi' => 'nullable|string|max:255',
+                'unit_kerja' => 'nullable|string|max:100',
+            ], [
+                'email.unique' => 'Email sudah terdaftar',
+                'role.in' => 'Role harus user, admin, atau superadmin'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Store old data for logging
+            $oldData = $user->toArray();
+
+            // Update user fields
+            $updateData = [];
+            $fields = ['name', 'email', 'phone', 'role', 'divisi', 'unit_kerja'];
+            
+            foreach ($fields as $field) {
+                if ($request->has($field)) {
+                    $updateData[$field] = $request->$field;
+                }
+            }
+
+            $user->update($updateData);
+
+            // Log the action
+            $changes = [];
+            foreach ($updateData as $field => $newValue) {
+                if (isset($oldData[$field]) && $oldData[$field] != $newValue) {
+                    $changes[$field] = ['from' => $oldData[$field], 'to' => $newValue];
+                }
+            }
+
+            if (!empty($changes)) {
+                Log::info("User updated: {$user->name} ({$user->email}) - Changes: " . json_encode($changes));
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pengguna berhasil diperbarui',
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'status' => $user->email_verified_at ? 'aktif' : 'pending',
+                    'updated_at' => $user->updated_at->format('Y-m-d H:i:s')
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Update User Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memperbarui pengguna',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Change user password (by superadmin)
+     * POST /api/superadmin/users/{id}/change-password
+     * 
+     * Request Body:
+     * {
+     *   "password": "string (required|min:6)",
+     *   "password_confirmation": "string (required)"
+     * }
+     */
+    public function changeUserPassword(Request $request, $id)
+    {
+        try {
+            $user = User::findOrFail($id);
+
+            // Validate the request
+            $validator = Validator::make($request->all(), [
+                'password' => [
+                    'required',
+                    'min:6',
+                    'confirmed',
+                    Password::defaults()
+                ],
+                'password_confirmation' => 'required|same:password',
+            ], [
+                'password.confirmed' => 'Password dan konfirmasi password tidak cocok'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Update password
+            $user->password = Hash::make($request->password);
+            $user->save();
+
+            // Log the action
+            Log::info("Password changed by superadmin for user: {$user->name} ({$user->email})");
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password pengguna berhasil diubah',
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'password_changed_at' => now()->format('Y-m-d H:i:s')
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Change Password Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengubah password',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Update User Role
      * POST /api/superadmin/users/{id}/role
      * 
@@ -274,6 +516,106 @@ class SuperAdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to deactivate user',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk activate users
+     * POST /api/superadmin/users/bulk/activate
+     * 
+     * Request Body:
+     * {
+     *   "user_ids": [1, 2, 3]
+     * }
+     */
+    public function bulkActivateUsers(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'user_ids' => 'required|array',
+                'user_ids.*' => 'integer|exists:users,id'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $activatedCount = User::whereIn('id', $request->user_ids)
+                ->whereNull('email_verified_at')
+                ->update(['email_verified_at' => now()]);
+
+            // Log the action
+            Log::info("Bulk activate: {$activatedCount} users activated");
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$activatedCount} pengguna berhasil diaktifkan",
+                'data' => [
+                    'activated_count' => $activatedCount
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Bulk Activate Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengaktifkan pengguna secara massal',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Bulk deactivate users
+     * POST /api/superadmin/users/bulk/deactivate
+     * 
+     * Request Body:
+     * {
+     *   "user_ids": [1, 2, 3]
+     * }
+     */
+    public function bulkDeactivateUsers(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'user_ids' => 'required|array',
+                'user_ids.*' => 'integer|exists:users,id'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $deactivatedCount = User::whereIn('id', $request->user_ids)
+                ->whereNotNull('email_verified_at')
+                ->update(['email_verified_at' => null]);
+
+            // Log the action
+            Log::info("Bulk deactivate: {$deactivatedCount} users deactivated");
+
+            return response()->json([
+                'success' => true,
+                'message' => "{$deactivatedCount} pengguna berhasil dinonaktifkan",
+                'data' => [
+                    'deactivated_count' => $deactivatedCount
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Bulk Deactivate Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menonaktifkan pengguna secara massal',
                 'error' => $e->getMessage()
             ], 500);
         }
@@ -494,6 +836,134 @@ class SuperAdminController extends Controller
             'message' => 'Revenue report endpoint not implemented'
         ], 501);
     }
-}
 
-?>
+    /**
+     * =====================================================================
+     * ADDITIONAL HELPER METHODS
+     * =====================================================================
+     */
+
+    /**
+     * Get User Activity Logs
+     * GET /api/superadmin/users/{id}/activity
+     */
+    public function getUserActivity($id)
+    {
+        try {
+            $user = User::findOrFail($id);
+            
+            // In a real application, you would query an activity log table
+            $activities = [
+                'created_at' => $user->created_at->format('Y-m-d H:i:s'),
+                'last_login' => 'Not implemented', // You would need to track this
+                'email_verified_at' => $user->email_verified_at ? $user->email_verified_at->format('Y-m-d H:i:s') : null,
+                'updated_at' => $user->updated_at->format('Y-m-d H:i:s'),
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User activity retrieved successfully',
+                'data' => $activities
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Get User Activity Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve user activity',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Export Users to CSV
+     * GET /api/superadmin/users/export?role=...&format=csv
+     */
+    public function exportUsers(Request $request)
+    {
+        try {
+            $role = $request->get('role', '');
+            $format = $request->get('format', 'csv');
+            
+            $query = User::query();
+            
+            if (!empty($role) && $role !== 'all') {
+                $query->where('role', $role);
+            }
+            
+            $users = $query->get();
+            
+            if ($format === 'csv') {
+                // In a real application, you would generate and return a CSV file
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Export functionality not fully implemented',
+                    'data' => [
+                        'user_count' => $users->count(),
+                        'format' => $format,
+                        'download_url' => '#' // Placeholder
+                    ]
+                ], 200);
+            }
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Unsupported export format'
+            ], 400);
+            
+        } catch (\Exception $e) {
+            Log::error('Export Users Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to export users',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Validate user data before creation or update
+     * This is a helper method used internally
+     */
+    private function validateUserData(Request $request, $userId = null)
+    {
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255|unique:users,email,' . ($userId ?: 'NULL'),
+            'phone' => 'nullable|string|max:20',
+            'role' => 'required|in:user,admin,superadmin',
+            'divisi' => 'nullable|string|max:255',
+            'unit_kerja' => 'nullable|string|max:100',
+        ];
+
+        $messages = [
+            'email.unique' => 'Email sudah terdaftar',
+            'role.in' => 'Role harus user, admin, atau superadmin',
+            'name.required' => 'Nama wajib diisi',
+            'email.required' => 'Email wajib diisi',
+            'email.email' => 'Format email tidak valid',
+        ];
+
+        return Validator::make($request->all(), $rules, $messages);
+    }
+
+    /**
+     * Format user response consistently
+     */
+    private function formatUserResponse(User $user)
+    {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'role' => $user->role,
+            'divisi' => $user->divisi,
+            'unit_kerja' => $user->unit_kerja,
+            'status' => $user->email_verified_at ? 'aktif' : 'pending',
+            'email_verified_at' => $user->email_verified_at ? $user->email_verified_at->format('Y-m-d H:i:s') : null,
+            'created_at' => $user->created_at->format('Y-m-d H:i:s'),
+            'updated_at' => $user->updated_at->format('Y-m-d H:i:s'),
+        ];
+    }
+}

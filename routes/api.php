@@ -393,20 +393,49 @@ Route::middleware(['auth:api', 'role:superadmin'])
         
         /*
         |======================================================================
-        | USER MANAGEMENT ROUTES
+        | USER MANAGEMENT ROUTES - COMPLETE CRUD
         |======================================================================
-        | 
-        | Complete CRUD operations for user management
-        | Prefix: /api/superadmin/users
         */
         Route::prefix('users')->group(function () {
-            // Read Operations
+            // ===== ROUTES TANPA PARAMETER DULU =====
+            // Read Operations (GET semua users)
             Route::get('', [SuperAdminController::class, 'listAllUsers'])
                 ->name('superadmin.users.index');
             
+            // Create Operation (POST create user) - HARUS SEBELUM {id}
+            Route::post('', [SuperAdminController::class, 'createUser'])
+                ->name('superadmin.users.create');
+            
+            // Bulk Actions (tanpa parameter)
+            Route::post('bulk/activate', [SuperAdminController::class, 'bulkActivateUsers'])
+                ->name('superadmin.users.bulkActivate');
+            
+            Route::post('bulk/deactivate', [SuperAdminController::class, 'bulkDeactivateUsers'])
+                ->name('superadmin.users.bulkDeactivate');
+            
+            // Export Users
+            Route::get('export', [SuperAdminController::class, 'exportUsers'])
+                ->name('superadmin.users.export');
+            
+            // ===== ROUTES DENGAN PARAMETER {id} =====
+            // Show single user
             Route::get('{id}', [SuperAdminController::class, 'showUser'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.show');
+            
+            // Update Operations
+            Route::put('{id}', [SuperAdminController::class, 'updateUser'])
+                ->where('id', '[0-9]+')
+                ->name('superadmin.users.update');
+            
+            Route::patch('{id}', [SuperAdminController::class, 'updateUser'])
+                ->where('id', '[0-9]+')
+                ->name('superadmin.users.update-patch');
+            
+            // Password Management
+            Route::post('{id}/change-password', [SuperAdminController::class, 'changeUserPassword'])
+                ->where('id', '[0-9]+')
+                ->name('superadmin.users.changePassword');
             
             // User Role Management
             Route::post('{id}/role', [SuperAdminController::class, 'changeUserRole'])
@@ -426,8 +455,12 @@ Route::middleware(['auth:api', 'role:superadmin'])
             Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.delete');
+            
+            // User Activity Logs
+            Route::get('{id}/activity', [SuperAdminController::class, 'getUserActivity'])
+                ->where('id', '[0-9]+')
+                ->name('superadmin.users.activity');
         });
-        
         /*
         |======================================================================
         | SETTINGS ROUTES
@@ -443,12 +476,18 @@ Route::middleware(['auth:api', 'role:superadmin'])
             Route::post('', [SuperAdminController::class, 'updateSettings'])
                 ->name('superadmin.settings.update');
             
+            Route::put('', [SuperAdminController::class, 'updateSettings'])
+                ->name('superadmin.settings.update-put');
+            
             // Placeholder for future: Email configuration
             Route::get('email-config', [SuperAdminController::class, 'getEmailConfig'])
                 ->name('superadmin.settings.emailConfig');
             
             Route::post('email-config', [SuperAdminController::class, 'updateEmailConfig'])
                 ->name('superadmin.settings.updateEmailConfig');
+            
+            Route::put('email-config', [SuperAdminController::class, 'updateEmailConfig'])
+                ->name('superadmin.settings.updateEmailConfig-put');
         });
         
         /*
@@ -468,6 +507,29 @@ Route::middleware(['auth:api', 'role:superadmin'])
             
             Route::get('health', [SuperAdminController::class, 'systemHealth'])
                 ->name('superadmin.system.health');
+            
+            // Database Maintenance
+            Route::get('database/stats', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Database stats endpoint not implemented'
+                ], 501);
+            })->name('superadmin.system.databaseStats');
+            
+            // Backup Management
+            Route::post('backup/create', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Backup create endpoint not implemented'
+                ], 501);
+            })->name('superadmin.system.backupCreate');
+            
+            Route::get('backup/list', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Backup list endpoint not implemented'
+                ], 501);
+            })->name('superadmin.system.backupList');
         });
         
         /*
@@ -493,9 +555,155 @@ Route::middleware(['auth:api', 'role:superadmin'])
             
             Route::get('revenue', [SuperAdminController::class, 'getRevenueReport'])
                 ->name('superadmin.reports.revenue');
+            
+            // Date Range Reports
+            Route::get('date-range', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Date range reports endpoint not implemented'
+                ], 501);
+            })->name('superadmin.reports.dateRange');
+            
+            // Export Reports
+            Route::post('export', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Export reports endpoint not implemented'
+                ], 501);
+            })->name('superadmin.reports.export');
+        });
+        
+        /*
+        |======================================================================
+        | AUDIT LOGS ROUTES (PLACEHOLDERS)
+        |======================================================================
+        | 
+        | Audit and activity logs for system monitoring
+        | Prefix: /api/superadmin/audit
+        */
+        Route::prefix('audit')->group(function () {
+            Route::get('', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Audit logs endpoint not implemented'
+                ], 501);
+            })->name('superadmin.audit.index');
+            
+            Route::get('user-activity', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User activity logs endpoint not implemented'
+                ], 501);
+            })->name('superadmin.audit.userActivity');
+            
+            Route::get('login-history', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Login history endpoint not implemented'
+                ], 501);
+            })->name('superadmin.audit.loginHistory');
+            
+            Route::get('system-events', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'System events endpoint not implemented'
+                ], 501);
+            })->name('superadmin.audit.systemEvents');
+        });
+        
+        /*
+        |======================================================================
+        | NOTIFICATION MANAGEMENT (PLACEHOLDERS)
+        |======================================================================
+        | 
+        | System notifications and alerts management
+        | Prefix: /api/superadmin/notifications
+        */
+        Route::prefix('notifications')->group(function () {
+            Route::get('', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Notifications endpoint not implemented'
+                ], 501);
+            })->name('superadmin.notifications.index');
+            
+            Route::post('send', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Send notifications endpoint not implemented'
+                ], 501);
+            })->name('superadmin.notifications.send');
+            
+            Route::get('templates', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Notification templates endpoint not implemented'
+                ], 501);
+            })->name('superadmin.notifications.templates');
+        });
+        
+        /*
+        |======================================================================
+        | API MANAGEMENT (PLACEHOLDERS)
+        |======================================================================
+        | 
+        | API keys and access management
+        | Prefix: /api/superadmin/api
+        */
+        Route::prefix('api')->group(function () {
+            Route::get('keys', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'API keys endpoint not implemented'
+                ], 501);
+            })->name('superadmin.api.keys');
+            
+            Route::post('keys/generate', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Generate API key endpoint not implemented'
+                ], 501);
+            })->name('superadmin.api.generateKey');
+            
+            Route::delete('keys/{id}', function($id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Delete API key endpoint not implemented'
+                ], 501);
+            })->name('superadmin.api.deleteKey');
+        });
+        
+        /*
+        |======================================================================
+        | ANALYTICS DASHBOARD (PLACEHOLDERS)
+        |======================================================================
+        | 
+        | Advanced analytics and insights
+        | Prefix: /api/superadmin/analytics
+        */
+        Route::prefix('analytics')->group(function () {
+            Route::get('overview', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Analytics overview endpoint not implemented'
+                ], 501);
+            })->name('superadmin.analytics.overview');
+            
+            Route::get('user-growth', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User growth analytics endpoint not implemented'
+                ], 501);
+            })->name('superadmin.analytics.userGrowth');
+            
+            Route::get('revenue-trends', function() {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Revenue trends analytics endpoint not implemented'
+                ], 501);
+            })->name('superadmin.analytics.revenueTrends');
         });
     });
-
 /*
 |--------------------------------------------------------------------------
 | FALLBACK ROUTE
