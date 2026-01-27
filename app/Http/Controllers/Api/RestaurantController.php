@@ -8,6 +8,7 @@ use App\Models\Area;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 
 class RestaurantController extends Controller
 {
@@ -107,8 +108,7 @@ class RestaurantController extends Controller
             $restaurant = Restaurant::with([
                 'area',
                 'menus' => function ($query) {
-                    $query->where('is_available', true)
-                          ->orderBy('name', 'asc');
+                     $query->orderBy('name', 'asc');
                 }
             ])->find($id);
 
@@ -148,7 +148,8 @@ class RestaurantController extends Controller
                 'name' => 'required|string|max:255',
                 'description' => 'nullable|string',
                 'address' => 'required|string|max:500',
-                'is_open' => 'nullable|boolean'
+                'is_open' => 'nullable|boolean',
+                'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             ]);
 
             if ($validator->fails()) {
@@ -164,6 +165,12 @@ class RestaurantController extends Controller
             // Set default is_open if not provided
             if (!isset($data['is_open'])) {
                 $data['is_open'] = true;
+            }
+
+            // Handle photo upload
+            if ($request->hasFile('photo')) {
+                $photoPath = $request->file('photo')->store('restaurants', 'public');
+                $data['photo'] = $photoPath;
             }
 
             $restaurant = Restaurant::create($data);
@@ -183,57 +190,79 @@ class RestaurantController extends Controller
             ], 500);
         }
     }
-
     /**
      * Update a restaurant (Superadmin only)
      * PUT /api/restaurants/{id}
      */
-    public function update(Request $request, $id)
-    {
-        try {
-            $restaurant = Restaurant::find($id);
+        public function update(Request $request, $id)
+        {
+            try {
+                $restaurant = Restaurant::find($id);
 
-            if (!$restaurant) {
+                if (!$restaurant) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Restaurant not found'
+                    ], 404);
+                }
+
+                $validator = Validator::make($request->all(), [
+                    'area_id' => 'sometimes|required|exists:areas,id',
+                    'name' => 'sometimes|required|string|max:255',
+                    'description' => 'nullable|string',
+                    'address' => 'sometimes|required|string|max:500',
+                    'is_open' => 'sometimes|boolean',
+                    'photo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+                    'delete_photo' => 'nullable|string',  
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Validation error',
+                        'errors' => $validator->errors()
+                    ], 422);
+                }
+
+                $data = $validator->validated();
+
+                if ($request->has('delete_photo') && $request->get('delete_photo') === 'true') {
+                    // Delete old photo if exists
+                    if ($restaurant->photo && Storage::disk('public')->exists($restaurant->photo)) {
+                        Storage::disk('public')->delete($restaurant->photo);
+                    }
+                    // Set photo to null
+                    $data['photo'] = null;
+                }
+                // Handle photo upload (jika ada foto baru)
+                else if ($request->hasFile('photo')) {
+                    // Delete old photo if exists
+                    if ($restaurant->photo && Storage::disk('public')->exists($restaurant->photo)) {
+                        Storage::disk('public')->delete($restaurant->photo);
+                    }
+
+                    // Upload new photo
+                    $photoPath = $request->file('photo')->store('restaurants', 'public');
+                    $data['photo'] = $photoPath;
+                }
+
+                $restaurant->update($data);
+                $restaurant->load('area');
+                $restaurant->loadCount('menus');
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Restaurant updated successfully',
+                    'data' => $restaurant
+                ], 200);
+            } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Restaurant not found'
-                ], 404);
+                    'message' => 'Failed to update restaurant',
+                    'error' => $e->getMessage()
+                ], 500);
             }
-
-            $validator = Validator::make($request->all(), [
-                'area_id' => 'sometimes|required|exists:areas,id',
-                'name' => 'sometimes|required|string|max:255',
-                'description' => 'nullable|string',
-                'address' => 'sometimes|required|string|max:500',
-                'is_open' => 'sometimes|boolean'
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Validation error',
-                    'errors' => $validator->errors()
-                ], 422);
-            }
-
-            $restaurant->update($validator->validated());
-            $restaurant->load('area');
-            $restaurant->loadCount('menus');
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Restaurant updated successfully',
-                'data' => $restaurant
-            ], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update restaurant',
-                'error' => $e->getMessage()
-            ], 500);
         }
-    }
-
     /**
      * Toggle restaurant open/close status (Superadmin only)
      * PATCH /api/restaurants/{id}/toggle-status
@@ -276,7 +305,7 @@ class RestaurantController extends Controller
      * Delete a restaurant (Superadmin only)
      * DELETE /api/restaurants/{id}
      */
-    public function destroy($id)
+      public function destroy($id)
     {
         try {
             $restaurant = Restaurant::find($id);
@@ -304,6 +333,11 @@ class RestaurantController extends Controller
                 ], 400);
             }
 
+            // Delete photo if exists
+            if ($restaurant->photo && Storage::disk('public')->exists($restaurant->photo)) {
+                Storage::disk('public')->delete($restaurant->photo);
+            }
+
             $restaurant->delete();
 
             return response()->json([
@@ -318,7 +352,6 @@ class RestaurantController extends Controller
             ], 500);
         }
     }
-
     /**
      * Get restaurant statistics (Superadmin only)
      * GET /api/restaurants/{id}/stats

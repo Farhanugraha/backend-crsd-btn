@@ -14,12 +14,12 @@ use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\PaymentsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Models\User;
 
 /*
 |--------------------------------------------------------------------------
 | API Routes
 |--------------------------------------------------------------------------
+| Base: /api
 */
 
 Route::get('/health', function () {
@@ -372,48 +372,35 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
                 ->where('paymentId', '[0-9]+')
                 ->name('admin.payments.show');
         });
-        
-        // User Management - HANYA SUPERADMIN
-        Route::middleware('role:superadmin')->prefix('users')->group(function () {
-            Route::get('', [SuperAdminController::class, 'listAllUsers'])
-                ->name('admin.users.index');
-            
-            Route::get('{id}', [SuperAdminController::class, 'showUser'])
-                ->where('id', '[0-9]+')
-                ->name('admin.users.show');
-            
-            Route::post('{id}/role', [SuperAdminController::class, 'changeUserRole'])
-                ->where('id', '[0-9]+')
-                ->name('admin.users.changeRole');
-            
-            Route::post('{id}/deactivate', [SuperAdminController::class, 'deactivateUser'])
-                ->where('id', '[0-9]+')
-                ->name('admin.users.deactivate');
-            
-            Route::post('{id}/activate', [SuperAdminController::class, 'activateUser'])
-                ->where('id', '[0-9]+')
-                ->name('admin.users.activate');
-            
-            Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
-                ->where('id', '[0-9]+')
-                ->name('admin.users.delete');
-        });
     });
 
 /*
 |--------------------------------------------------------------------------
 | SUPERADMIN ROUTES - SUPERADMIN ONLY
+| 
 | Akses eksklusif untuk fitur superadmin
+| Prefix: /api/superadmin
+| Middleware: auth:api, role:superadmin
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api', 'role:superadmin'])
     ->prefix('superadmin')
     ->group(function () {
+        
+        // Dashboard
         Route::get('dashboard', [SuperAdminController::class, 'dashboard'])
             ->name('superadmin.dashboard');
         
-        // User Management
+        /*
+        |======================================================================
+        | USER MANAGEMENT ROUTES
+        |======================================================================
+        | 
+        | Complete CRUD operations for user management
+        | Prefix: /api/superadmin/users
+        */
         Route::prefix('users')->group(function () {
+            // Read Operations
             Route::get('', [SuperAdminController::class, 'listAllUsers'])
                 ->name('superadmin.users.index');
             
@@ -421,24 +408,34 @@ Route::middleware(['auth:api', 'role:superadmin'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.show');
             
+            // User Role Management
             Route::post('{id}/role', [SuperAdminController::class, 'changeUserRole'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.changeRole');
+            
+            // User Status Management
+            Route::post('{id}/activate', [SuperAdminController::class, 'activateUser'])
+                ->where('id', '[0-9]+')
+                ->name('superadmin.users.activate');
             
             Route::post('{id}/deactivate', [SuperAdminController::class, 'deactivateUser'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.deactivate');
             
-            Route::post('{id}/activate', [SuperAdminController::class, 'activateUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.activate');
-            
+            // Delete Operation
             Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
                 ->where('id', '[0-9]+')
                 ->name('superadmin.users.delete');
         });
         
-        // Settings
+        /*
+        |======================================================================
+        | SETTINGS ROUTES
+        |======================================================================
+        | 
+        | System settings management
+        | Prefix: /api/superadmin/settings
+        */
         Route::prefix('settings')->group(function () {
             Route::get('', [SuperAdminController::class, 'getSettings'])
                 ->name('superadmin.settings.index');
@@ -446,6 +443,7 @@ Route::middleware(['auth:api', 'role:superadmin'])
             Route::post('', [SuperAdminController::class, 'updateSettings'])
                 ->name('superadmin.settings.update');
             
+            // Placeholder for future: Email configuration
             Route::get('email-config', [SuperAdminController::class, 'getEmailConfig'])
                 ->name('superadmin.settings.emailConfig');
             
@@ -453,7 +451,14 @@ Route::middleware(['auth:api', 'role:superadmin'])
                 ->name('superadmin.settings.updateEmailConfig');
         });
         
-        // System Management
+        /*
+        |======================================================================
+        | SYSTEM MANAGEMENT ROUTES (PLACEHOLDERS)
+        |======================================================================
+        | 
+        | System management features for future implementation
+        | Prefix: /api/superadmin/system
+        */
         Route::prefix('system')->group(function () {
             Route::get('logs', [SuperAdminController::class, 'getLogs'])
                 ->name('superadmin.system.logs');
@@ -465,7 +470,14 @@ Route::middleware(['auth:api', 'role:superadmin'])
                 ->name('superadmin.system.health');
         });
         
-        // Reports
+        /*
+        |======================================================================
+        | REPORTS ROUTES (PLACEHOLDERS)
+        |======================================================================
+        | 
+        | Reporting features for future implementation
+        | Prefix: /api/superadmin/reports
+        */
         Route::prefix('reports')->group(function () {
             Route::get('', [SuperAdminController::class, 'getReports'])
                 ->name('superadmin.reports.index');

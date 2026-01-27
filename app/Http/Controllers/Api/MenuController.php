@@ -72,7 +72,7 @@ class MenuController extends Controller
         try {
             // Validate file
             $validator = Validator::make($request->all(), [
-                'file' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120'
+                'file' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:2048'
             ]);
 
             if ($validator->fails()) {
@@ -111,12 +111,6 @@ class MenuController extends Controller
                     'message' => 'Failed to save file'
                 ], 500);
             }
-
-            /**
-             * PERBAIKAN DI SINI:
-             * Menggunakan Storage::url() secara langsung untuk menghindari 
-             * undefined method error pada Intelephense.
-             */
             return response()->json([
                 'success' => true,
                 'message' => 'File uploaded successfully',
@@ -145,7 +139,7 @@ class MenuController extends Controller
                 'restaurant_id' => 'required|exists:restaurants,id',
                 'name' => 'required|string|max:255',
                 'price' => 'required|numeric|min:0',
-                'image' => 'required|string',
+                'image' => 'nullable|string',
                 'is_available' => 'sometimes|boolean'
             ]);
 
@@ -162,7 +156,7 @@ class MenuController extends Controller
                 'restaurant_id' => $request->restaurant_id,
                 'name' => $request->name,
                 'price' => $request->price,
-                'image' => $request->image,
+                'image' => $request->image ?? null,
                 'is_available' => $request->is_available ?? true
             ];
 
