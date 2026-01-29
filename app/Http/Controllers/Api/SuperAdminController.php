@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Orders;
+use App\Models\Payments;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -18,22 +20,24 @@ class SuperAdminController extends Controller
      * =====================================================================
      */
 
-    /**
+   /**
      * Get SuperAdmin Dashboard Statistics
      * GET /api/superadmin/dashboard
-     * 
-     * Returns user statistics overview
      */
     public function dashboard()
     {
         try {
             $stats = [
+                'total_orders' => Orders::count(),
                 'total_users' => User::count(),
                 'total_admins' => User::where('role', 'admin')->count(),
                 'total_superadmins' => User::where('role', 'superadmin')->count(),
-                'total_regular_users' => User::where('role', 'user')->count(),
-                'verified_users' => User::whereNotNull('email_verified_at')->count(),
-                'unverified_users' => User::whereNull('email_verified_at')->count(),
+                'pending_orders' => Orders::where('status', 'pending')->count(),
+                'processing_orders' => Orders::where('status', 'processing')->count(),
+                'completed_orders' => Orders::where('status', 'completed')->count(),
+                'canceled_orders' => Orders::where('status', 'canceled')->count(),
+                'total_revenue' => Payments::where('status', 'completed')->sum('amount'),
+                'pending_payments' => Payments::where('status', 'pending')->count(),
             ];
 
             return response()->json([
@@ -57,17 +61,9 @@ class SuperAdminController extends Controller
      * =====================================================================
      */
 
-    /**
+     /**
      * List All Users with Search, Filter, and Pagination
      * GET /api/superadmin/users?page=1&per_page=15&search=...&role=...&sort=...&order=...
-     * 
-     * Query Parameters:
-     * - page: integer (default: 1)
-     * - per_page: integer (default: 15)
-     * - search: string - search by name, email, or phone
-     * - role: string - filter by role (user|admin|superadmin|all)
-     * - sort: string - field to sort by (default: created_at)
-     * - order: string - sort order (asc|desc, default: desc)
      */
     public function listAllUsers(Request $request)
     {
@@ -86,7 +82,7 @@ class SuperAdminController extends Controller
             // Build query
             $query = User::query();
 
-            // Search functionality - by name, email, or phone
+            // Search functionality
             if (!empty($search)) {
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'LIKE', "%{$search}%")
@@ -121,7 +117,7 @@ class SuperAdminController extends Controller
         }
     }
 
-    /**
+   /**
      * Get Single User Details
      * GET /api/superadmin/users/{id}
      */
