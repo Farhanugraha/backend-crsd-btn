@@ -200,7 +200,7 @@ class SuperAdminController extends Controller
                 'role' => $request->role,
                 'divisi' => $request->divisi,
                 'unit_kerja' => $request->unit_kerja,
-                'email_verified_at' => now(), // Directly verified by superadmin
+                'email_verified_at' => now(), 
             ]);
 
             // Log the action
