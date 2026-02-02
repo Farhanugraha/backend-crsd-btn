@@ -27,7 +27,8 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         'divisi',
         'unit_kerja',
         'email_verified_at', 
-        'role'
+        'role',
+        'data_access'
     ];
 
     /**
@@ -40,17 +41,6 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         'remember_token',
     ];
 
-
-    public function carts(): HasMany
-    {
-        return $this->hasMany(Cart::class);
-    }
-
-    public function orders(): HasMany
-    {
-        return $this->hasMany(Orders::class);
-    }
-
     /**
      * Get the attributes that should be cast.
      *
@@ -61,7 +51,18 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'data_access' => 'array', 
         ];
+    }
+
+    public function carts(): HasMany
+    {
+        return $this->hasMany(Cart::class);
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Orders::class);
     }
 
     /**
@@ -82,5 +83,34 @@ class User extends Authenticatable implements JWTSubject, MustVerifyEmail
     public function getJWTCustomClaims()
     {
         return [];
+    }
+
+    /**
+     * Accessor untuk data_access dengan fallback ke array kosong
+     */
+    public function getDataAccessAttribute($value)
+    {
+        if (is_string($value)) {
+            $decoded = json_decode($value, true);
+            return json_last_error() === JSON_ERROR_NONE && is_array($decoded) 
+                ? $decoded 
+                : [];
+        }
+        
+        return is_array($value) ? $value : [];
+    }
+
+    /**
+     * Mutator untuk data_access untuk memastikan selalu array atau null
+     */
+    public function setDataAccessAttribute($value)
+    {
+        if (is_array($value) && !empty($value)) {
+            $this->attributes['data_access'] = json_encode(array_values(array_unique($value)));
+        } elseif ($value === null || $value === '' || (is_array($value) && empty($value))) {
+            $this->attributes['data_access'] = null;
+        } else {
+            $this->attributes['data_access'] = $value;
+        }
     }
 }

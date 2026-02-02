@@ -26,7 +26,7 @@ Route::get('/health', function () {
     return response()->json([
         'success' => true,
         'message' => 'API is running',
-        'timestamp' => now()
+        'timestamp' => now()->toIso8601String()
     ]);
 });
 
@@ -37,6 +37,7 @@ Route::get('/health', function () {
 */
 Route::prefix('email')->group(function () {
     Route::get('verify/{id}/{hash}', [EmailVerificationController::class, 'verify'])
+        ->middleware('signed')
         ->name('verification.verify');
 
     Route::middleware('auth:api')->group(function () {
@@ -55,6 +56,7 @@ Route::prefix('email')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
+    // Public routes
     Route::post('register', [AuthController::class, 'register'])
         ->middleware('throttle:5,1')
         ->name('auth.register');
@@ -71,6 +73,7 @@ Route::prefix('auth')->group(function () {
         ->middleware('throttle:3,1')
         ->name('password.reset');
 
+    // Authenticated routes
     Route::middleware('auth:api')->group(function () {
         Route::post('logout', [AuthController::class, 'logout'])
             ->name('auth.logout');
@@ -84,8 +87,11 @@ Route::prefix('auth')->group(function () {
         Route::post('refresh', [AuthController::class, 'refresh'])
             ->name('auth.refresh');
         
-        Route::match(['put', 'patch'], 'profile', [AuthController::class, 'updateProfile'])
+        Route::put('profile', [AuthController::class, 'updateProfile'])
             ->name('auth.profile.update');
+        
+        Route::patch('profile', [AuthController::class, 'updateProfile'])
+            ->name('auth.profile.update-patch');
     });
 });
 
@@ -95,31 +101,32 @@ Route::prefix('auth')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('areas')->group(function () {
+    // Public routes
     Route::get('', [AreaController::class, 'index'])
         ->name('areas.index');
     
     Route::get('{id}', [AreaController::class, 'show'])
-        ->where('id', '[0-9]+')
+        ->whereNumber('id')
         ->name('areas.show');
     
     Route::get('slug/{slug}', [AreaController::class, 'showBySlug'])
         ->name('areas.showBySlug');
     
     Route::get('{id}/restaurants', [AreaController::class, 'getRestaurants'])
-        ->where('id', '[0-9]+')
+        ->whereNumber('id')
         ->name('areas.restaurants');
     
-    // SUPERADMIN ONLY - Area Management
+    // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [AreaController::class, 'store'])
             ->name('areas.store');
         
         Route::put('{id}', [AreaController::class, 'update'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('areas.update');
         
         Route::delete('{id}', [AreaController::class, 'destroy'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('areas.destroy');
     });
 });
@@ -130,6 +137,7 @@ Route::prefix('areas')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('restaurants')->group(function () {
+    // Public routes
     Route::get('search', [RestaurantController::class, 'search'])
         ->name('restaurants.search');
     
@@ -137,18 +145,18 @@ Route::prefix('restaurants')->group(function () {
         ->name('restaurants.index');
     
     Route::get('area/{areaId}', [RestaurantController::class, 'getByArea'])
-        ->where('areaId', '[0-9]+')
+        ->whereNumber('areaId')
         ->name('restaurants.byArea');
     
     Route::get('{id}', [RestaurantController::class, 'show'])
-        ->where('id', '[0-9]+')
+        ->whereNumber('id')
         ->name('restaurants.show');
     
     Route::get('{id}/stats', [RestaurantController::class, 'getStats'])
-        ->where('id', '[0-9]+')
+        ->whereNumber('id')
         ->name('restaurants.stats');
     
-    // SUPERADMIN ONLY - Restaurant Management
+    // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::get('all', [RestaurantController::class, 'getAllRestaurants'])
             ->name('restaurants.all');
@@ -157,15 +165,15 @@ Route::prefix('restaurants')->group(function () {
             ->name('restaurants.store');
         
         Route::put('{id}', [RestaurantController::class, 'update'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('restaurants.update');
         
         Route::patch('{id}/toggle-status', [RestaurantController::class, 'toggleStatus'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('restaurants.toggleStatus');
         
         Route::delete('{id}', [RestaurantController::class, 'destroy'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('restaurants.destroy');
     });
 });
@@ -176,29 +184,30 @@ Route::prefix('restaurants')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('menus')->group(function () {
+    // Public routes
     Route::get('restaurant/{restaurantId}', [MenuController::class, 'index'])
-        ->where('restaurantId', '[0-9]+')
+        ->whereNumber('restaurantId')
         ->name('menus.index');
     
     Route::get('{id}', [MenuController::class, 'show'])
-        ->where('id', '[0-9]+')
+        ->whereNumber('id')
         ->name('menus.show');
     
-    // SUPERADMIN ONLY - Menu Management
+    // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
         Route::post('', [MenuController::class, 'store'])
             ->name('menus.store');
         
         Route::put('{id}', [MenuController::class, 'update'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('menus.update');
         
         Route::patch('{id}/toggle', [MenuController::class, 'toggleAvailability'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('menus.toggleAvailability');
         
         Route::delete('{id}', [MenuController::class, 'destroy'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('menus.destroy');
 
         Route::post('upload-image', [MenuController::class, 'uploadImage'])
@@ -208,7 +217,7 @@ Route::prefix('menus')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| USER CART ROUTES - HANYA USER BIASA
+| USER CART ROUTES - USER ONLY
 |--------------------------------------------------------------------------
 */
 Route::prefix('cart')
@@ -221,11 +230,11 @@ Route::prefix('cart')
             ->name('cart.addItem');
         
         Route::put('items/{cartItemId}', [CartController::class, 'updateItem'])
-            ->where('cartItemId', '[0-9]+')
+            ->whereNumber('cartItemId')
             ->name('cart.updateItem');
         
         Route::delete('items/{cartItemId}', [CartController::class, 'removeItem'])
-            ->where('cartItemId', '[0-9]+')
+            ->whereNumber('cartItemId')
             ->name('cart.removeItem');
         
         Route::delete('clear', [CartController::class, 'clearCart'])
@@ -240,7 +249,7 @@ Route::prefix('cart')
 
 /*
 |--------------------------------------------------------------------------
-| USER ORDER ROUTES - UNTUK SEMUA AUTHENTICATED USERS
+| USER ORDER ROUTES - ALL AUTHENTICATED USERS
 |--------------------------------------------------------------------------
 */
 Route::prefix('orders')
@@ -253,44 +262,44 @@ Route::prefix('orders')
             ->name('orders.store');
         
         Route::get('{id}', [OrdersController::class, 'show'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('orders.show');
         
         Route::put('{id}/payment-status', [OrdersController::class, 'updatePaymentStatus'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('orders.updatePaymentStatus');
         
         Route::post('{id}/cancel', [OrdersController::class, 'cancel'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('orders.cancel');
         
         Route::put('{id}/notes', [OrdersController::class, 'updateNotes'])
-            ->where('id', '[0-9]+')
+            ->whereNumber('id')
             ->name('orders.updateNotes');
         
         Route::put('{id}/items/{itemId}/notes', [OrdersController::class, 'updateItemNotes'])
-            ->where(['id' => '[0-9]+', 'itemId' => '[0-9]+'])
+            ->whereNumber(['id', 'itemId'])
             ->name('orders.updateItemNotes');
     });
 
 /*
 |--------------------------------------------------------------------------
-| USER PAYMENT ROUTES - UNTUK SEMUA AUTHENTICATED USERS
+| USER PAYMENT ROUTES - ALL AUTHENTICATED USERS
 |--------------------------------------------------------------------------
 */
 Route::prefix('payments')
     ->middleware(['auth:api'])
     ->group(function () {
         Route::get('orders/{orderId}', [PaymentsController::class, 'show'])
-            ->where('orderId', '[0-9]+')
+            ->whereNumber('orderId')
             ->name('payments.show');
         
         Route::post('orders/{orderId}/initiate', [PaymentsController::class, 'initiate'])
-            ->where('orderId', '[0-9]+')
+            ->whereNumber('orderId')
             ->name('payments.initiate');
         
         Route::post('orders/{orderId}/upload-proof', [PaymentsController::class, 'uploadProof'])
-            ->where('orderId', '[0-9]+')
+            ->whereNumber('orderId')
             ->name('payments.uploadProof');
         
         Route::get('history', [PaymentsController::class, 'history'])
@@ -300,7 +309,6 @@ Route::prefix('payments')
 /*
 |--------------------------------------------------------------------------
 | ADMIN ROUTES - ADMIN & SUPERADMIN
-| Akses Admin untuk: Orders, Payments, Statistics, Reports
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api', 'role:admin,superadmin'])
@@ -335,23 +343,23 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
                 ->name('admin.orders.pending');
             
             Route::get('status/{status}', [OrdersController::class, 'getOrdersByStatus'])
-                ->where('status', 'processing|completed|canceled')
+                ->whereIn('status', ['processing', 'completed', 'canceled'])
                 ->name('admin.orders.byStatus');
             
             Route::get('{id}', [OrdersController::class, 'getOrderDetail'])
-                ->where('id', '[0-9]+')
+                ->whereNumber('id')
                 ->name('admin.orders.show');
             
             Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
-                ->where('id', '[0-9]+')
+                ->whereNumber('id')
                 ->name('admin.orders.updateStatus');
             
             Route::put('{id}/items/{itemId}/toggle-check', [OrdersController::class, 'toggleItemChecked'])
-                ->where(['id' => '[0-9]+', 'itemId' => '[0-9]+'])
+                ->whereNumber(['id', 'itemId'])
                 ->name('admin.orders.toggleItemChecked');
             
             Route::get('{id}/checked-items-count', [OrdersController::class, 'getCheckedItemsCount'])
-                ->where('id', '[0-9]+')
+                ->whereNumber('id')
                 ->name('admin.orders.checkedItemsCount');
         });
         
@@ -361,15 +369,15 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
                 ->name('admin.payments.index');
             
             Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
-                ->where('paymentId', '[0-9]+')
+                ->whereNumber('paymentId')
                 ->name('admin.payments.confirm');
             
             Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
-                ->where('paymentId', '[0-9]+')
+                ->whereNumber('paymentId')
                 ->name('admin.payments.reject');
             
             Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])
-                ->where('paymentId', '[0-9]+')
+                ->whereNumber('paymentId')
                 ->name('admin.payments.show');
         });
     });
@@ -377,333 +385,323 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
 /*
 |--------------------------------------------------------------------------
 | SUPERADMIN ROUTES - SUPERADMIN ONLY
-| 
-| Akses eksklusif untuk fitur superadmin
-| Prefix: /api/superadmin
-| Middleware: auth:api, role:superadmin
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:api', 'role:superadmin'])
     ->prefix('superadmin')
+    ->name('superadmin.')
     ->group(function () {
         
         // Dashboard
         Route::get('dashboard', [SuperAdminController::class, 'dashboard'])
-            ->name('superadmin.dashboard');
+            ->name('dashboard');
+        
+        // Data types - moved outside users prefix for easier access
+        Route::get('data-types', [SuperAdminController::class, 'getDataTypes'])
+            ->name('dataTypes');
         
         /*
-        |======================================================================
-        | USER MANAGEMENT ROUTES - COMPLETE CRUD
-        |======================================================================
+        |----------------------------------------------------------------------
+        | USER MANAGEMENT ROUTES
+        |----------------------------------------------------------------------
         */
-        Route::prefix('users')->group(function () {
-            // ===== ROUTES TANPA PARAMETER DULU =====
-            // Read Operations (GET semua users)
+        Route::prefix('users')->name('users.')->group(function () {
+            // Resource routes without parameters first
             Route::get('', [SuperAdminController::class, 'listAllUsers'])
-                ->name('superadmin.users.index');
+                ->name('index');
             
-            // Create Operation (POST create user) - HARUS SEBELUM {id}
             Route::post('', [SuperAdminController::class, 'createUser'])
-                ->name('superadmin.users.create');
+                ->name('store');
             
-            // Bulk Actions (tanpa parameter)
+            // Bulk operations
             Route::post('bulk/activate', [SuperAdminController::class, 'bulkActivateUsers'])
-                ->name('superadmin.users.bulkActivate');
+                ->name('bulk.activate');
             
             Route::post('bulk/deactivate', [SuperAdminController::class, 'bulkDeactivateUsers'])
-                ->name('superadmin.users.bulkDeactivate');
+                ->name('bulk.deactivate');
             
-            // Export Users
+            // Export
             Route::get('export', [SuperAdminController::class, 'exportUsers'])
-                ->name('superadmin.users.export');
+                ->name('export');
             
-            // ===== ROUTES DENGAN PARAMETER {id} =====
-            // Show single user
-            Route::get('{id}', [SuperAdminController::class, 'showUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.show');
+            // Admins with data access
+            Route::get('admins', [SuperAdminController::class, 'listAdminsWithAccess'])
+                ->name('admins.index');
             
-            // Update Operations
-            Route::put('{id}', [SuperAdminController::class, 'updateUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.update');
-            
-            Route::patch('{id}', [SuperAdminController::class, 'updateUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.update-patch');
-            
-            // Password Management
-            Route::post('{id}/change-password', [SuperAdminController::class, 'changeUserPassword'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.changePassword');
-            
-            // User Role Management
-            Route::post('{id}/role', [SuperAdminController::class, 'changeUserRole'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.changeRole');
-            
-            // User Status Management
-            Route::post('{id}/activate', [SuperAdminController::class, 'activateUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.activate');
-            
-            Route::post('{id}/deactivate', [SuperAdminController::class, 'deactivateUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.deactivate');
-            
-            // Delete Operation
-            Route::delete('{id}', [SuperAdminController::class, 'deleteUser'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.delete');
-            
-            // User Activity Logs
-            Route::get('{id}/activity', [SuperAdminController::class, 'getUserActivity'])
-                ->where('id', '[0-9]+')
-                ->name('superadmin.users.activity');
+            // Routes with parameters
+            Route::prefix('{user}')->whereNumber('user')->group(function () {
+                Route::get('', [SuperAdminController::class, 'showUser'])
+                    ->name('show');
+                
+                Route::put('', [SuperAdminController::class, 'updateUser'])
+                    ->name('update');
+                
+                Route::patch('', [SuperAdminController::class, 'updateUser'])
+                    ->name('update-patch');
+                
+                // Password management
+                Route::post('change-password', [SuperAdminController::class, 'changeUserPassword'])
+                    ->name('changePassword');
+                
+                // Role management
+                Route::post('role', [SuperAdminController::class, 'changeUserRole'])
+                    ->name('changeRole');
+                
+                // Status management
+                Route::post('activate', [SuperAdminController::class, 'activateUser'])
+                    ->name('activate');
+                
+                Route::post('deactivate', [SuperAdminController::class, 'deactivateUser'])
+                    ->name('deactivate');
+                
+                // Data access management
+                Route::get('data-access', [SuperAdminController::class, 'getDataAccess'])
+                    ->name('dataAccess.get');
+                
+                Route::post('data-access', [SuperAdminController::class, 'setDataAccess'])
+                    ->name('dataAccess.set');
+                
+                // Check access
+                Route::post('check-access', [SuperAdminController::class, 'checkUserAccess'])
+                    ->name('checkAccess');
+                
+                // Activity logs
+                Route::get('activity', [SuperAdminController::class, 'getUserActivity'])
+                    ->name('activity');
+                
+                // Delete
+                Route::delete('', [SuperAdminController::class, 'deleteUser'])
+                    ->name('destroy');
+            });
         });
+        
         /*
-        |======================================================================
+        |----------------------------------------------------------------------
         | SETTINGS ROUTES
-        |======================================================================
-        | 
-        | System settings management
-        | Prefix: /api/superadmin/settings
+        |----------------------------------------------------------------------
         */
-        Route::prefix('settings')->group(function () {
+        Route::prefix('settings')->name('settings.')->group(function () {
             Route::get('', [SuperAdminController::class, 'getSettings'])
-                ->name('superadmin.settings.index');
+                ->name('index');
             
             Route::post('', [SuperAdminController::class, 'updateSettings'])
-                ->name('superadmin.settings.update');
+                ->name('update');
             
             Route::put('', [SuperAdminController::class, 'updateSettings'])
-                ->name('superadmin.settings.update-put');
+                ->name('update-put');
             
-            // Placeholder for future: Email configuration
-            Route::get('email-config', [SuperAdminController::class, 'getEmailConfig'])
-                ->name('superadmin.settings.emailConfig');
-            
-            Route::post('email-config', [SuperAdminController::class, 'updateEmailConfig'])
-                ->name('superadmin.settings.updateEmailConfig');
-            
-            Route::put('email-config', [SuperAdminController::class, 'updateEmailConfig'])
-                ->name('superadmin.settings.updateEmailConfig-put');
+            // Email configuration
+            Route::prefix('email-config')->group(function () {
+                Route::get('', [SuperAdminController::class, 'getEmailConfig'])
+                    ->name('emailConfig.index');
+                
+                Route::post('', [SuperAdminController::class, 'updateEmailConfig'])
+                    ->name('emailConfig.update');
+                
+                Route::put('', [SuperAdminController::class, 'updateEmailConfig'])
+                    ->name('emailConfig.update-put');
+            });
         });
         
         /*
-        |======================================================================
-        | SYSTEM MANAGEMENT ROUTES (PLACEHOLDERS)
-        |======================================================================
-        | 
-        | System management features for future implementation
-        | Prefix: /api/superadmin/system
+        |----------------------------------------------------------------------
+        | SYSTEM MANAGEMENT ROUTES
+        |----------------------------------------------------------------------
         */
-        Route::prefix('system')->group(function () {
+        Route::prefix('system')->name('system.')->group(function () {
             Route::get('logs', [SuperAdminController::class, 'getLogs'])
-                ->name('superadmin.system.logs');
+                ->name('logs');
             
             Route::post('clear-cache', [SuperAdminController::class, 'clearCache'])
-                ->name('superadmin.system.clearCache');
+                ->name('clearCache');
             
             Route::get('health', [SuperAdminController::class, 'systemHealth'])
-                ->name('superadmin.system.health');
+                ->name('health');
             
-            // Database Maintenance
-            Route::get('database/stats', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Database stats endpoint not implemented'
-                ], 501);
-            })->name('superadmin.system.databaseStats');
+            // Database maintenance
+            Route::prefix('database')->group(function () {
+                Route::get('stats', [SuperAdminController::class, 'getDatabaseStats'])
+                    ->name('database.stats');
+            });
             
-            // Backup Management
-            Route::post('backup/create', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Backup create endpoint not implemented'
-                ], 501);
-            })->name('superadmin.system.backupCreate');
-            
-            Route::get('backup/list', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Backup list endpoint not implemented'
-                ], 501);
-            })->name('superadmin.system.backupList');
+            // Backup management
+            Route::prefix('backup')->group(function () {
+                Route::post('create', [SuperAdminController::class, 'createBackup'])
+                    ->name('backup.create');
+                
+                Route::get('list', [SuperAdminController::class, 'listBackups'])
+                    ->name('backup.list');
+            });
         });
         
         /*
-        |======================================================================
-        | REPORTS ROUTES (PLACEHOLDERS)
-        |======================================================================
-        | 
-        | Reporting features for future implementation
-        | Prefix: /api/superadmin/reports
+        |----------------------------------------------------------------------
+        | REPORTS ROUTES
+        |----------------------------------------------------------------------
         */
-        Route::prefix('reports')->group(function () {
+        Route::prefix('reports')->name('reports.')->group(function () {
             Route::get('', [SuperAdminController::class, 'getReports'])
-                ->name('superadmin.reports.index');
+                ->name('index');
             
             Route::get('users', [SuperAdminController::class, 'getUsersReport'])
-                ->name('superadmin.reports.users');
+                ->name('users');
             
             Route::get('orders', [SuperAdminController::class, 'getOrdersReport'])
-                ->name('superadmin.reports.orders');
+                ->name('orders');
             
             Route::get('payments', [SuperAdminController::class, 'getPaymentsReport'])
-                ->name('superadmin.reports.payments');
+                ->name('payments');
             
             Route::get('revenue', [SuperAdminController::class, 'getRevenueReport'])
-                ->name('superadmin.reports.revenue');
+                ->name('revenue');
             
-            // Date Range Reports
-            Route::get('date-range', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Date range reports endpoint not implemented'
-                ], 501);
-            })->name('superadmin.reports.dateRange');
+            // Date range reports
+            Route::get('date-range', [SuperAdminController::class, 'getDateRangeReport'])
+                ->name('dateRange');
             
-            // Export Reports
-            Route::post('export', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Export reports endpoint not implemented'
-                ], 501);
-            })->name('superadmin.reports.export');
+            // Export
+            Route::post('export', [SuperAdminController::class, 'exportReports'])
+                ->name('export');
         });
         
         /*
-        |======================================================================
-        | AUDIT LOGS ROUTES (PLACEHOLDERS)
-        |======================================================================
-        | 
-        | Audit and activity logs for system monitoring
-        | Prefix: /api/superadmin/audit
+        |----------------------------------------------------------------------
+        | AUDIT LOGS ROUTES
+        |----------------------------------------------------------------------
         */
-        Route::prefix('audit')->group(function () {
-            Route::get('', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Audit logs endpoint not implemented'
-                ], 501);
-            })->name('superadmin.audit.index');
+        Route::prefix('audit')->name('audit.')->group(function () {
+            Route::get('', [SuperAdminController::class, 'getAuditLogs'])
+                ->name('index');
             
-            Route::get('user-activity', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User activity logs endpoint not implemented'
-                ], 501);
-            })->name('superadmin.audit.userActivity');
+            Route::get('user-activity', [SuperAdminController::class, 'getUserActivityLogs'])
+                ->name('userActivity');
             
-            Route::get('login-history', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Login history endpoint not implemented'
-                ], 501);
-            })->name('superadmin.audit.loginHistory');
+            Route::get('login-history', [SuperAdminController::class, 'getLoginHistory'])
+                ->name('loginHistory');
             
-            Route::get('system-events', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'System events endpoint not implemented'
-                ], 501);
-            })->name('superadmin.audit.systemEvents');
+            Route::get('system-events', [SuperAdminController::class, 'getSystemEvents'])
+                ->name('systemEvents');
         });
         
         /*
-        |======================================================================
-        | NOTIFICATION MANAGEMENT (PLACEHOLDERS)
-        |======================================================================
-        | 
-        | System notifications and alerts management
-        | Prefix: /api/superadmin/notifications
+        |----------------------------------------------------------------------
+        | NOTIFICATION MANAGEMENT
+        |----------------------------------------------------------------------
         */
-        Route::prefix('notifications')->group(function () {
-            Route::get('', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Notifications endpoint not implemented'
-                ], 501);
-            })->name('superadmin.notifications.index');
+        Route::prefix('notifications')->name('notifications.')->group(function () {
+            Route::get('', [SuperAdminController::class, 'getNotifications'])
+                ->name('index');
             
-            Route::post('send', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Send notifications endpoint not implemented'
-                ], 501);
-            })->name('superadmin.notifications.send');
+            Route::post('send', [SuperAdminController::class, 'sendNotification'])
+                ->name('send');
             
-            Route::get('templates', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Notification templates endpoint not implemented'
-                ], 501);
-            })->name('superadmin.notifications.templates');
+            Route::get('templates', [SuperAdminController::class, 'getNotificationTemplates'])
+                ->name('templates');
         });
         
         /*
-        |======================================================================
-        | API MANAGEMENT (PLACEHOLDERS)
-        |======================================================================
-        | 
-        | API keys and access management
-        | Prefix: /api/superadmin/api
+        |----------------------------------------------------------------------
+        | API MANAGEMENT
+        |----------------------------------------------------------------------
         */
-        Route::prefix('api')->group(function () {
-            Route::get('keys', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'API keys endpoint not implemented'
-                ], 501);
-            })->name('superadmin.api.keys');
+        Route::prefix('api')->name('api.')->group(function () {
+            Route::get('keys', [SuperAdminController::class, 'getApiKeys'])
+                ->name('keys.index');
             
-            Route::post('keys/generate', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Generate API key endpoint not implemented'
-                ], 501);
-            })->name('superadmin.api.generateKey');
+            Route::post('keys/generate', [SuperAdminController::class, 'generateApiKey'])
+                ->name('keys.generate');
             
-            Route::delete('keys/{id}', function($id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Delete API key endpoint not implemented'
-                ], 501);
-            })->name('superadmin.api.deleteKey');
+            Route::delete('keys/{id}', [SuperAdminController::class, 'deleteApiKey'])
+                ->whereNumber('id')
+                ->name('keys.delete');
         });
         
         /*
-        |======================================================================
-        | ANALYTICS DASHBOARD (PLACEHOLDERS)
-        |======================================================================
-        | 
-        | Advanced analytics and insights
-        | Prefix: /api/superadmin/analytics
+        |----------------------------------------------------------------------
+        | ANALYTICS DASHBOARD
+        |----------------------------------------------------------------------
         */
-        Route::prefix('analytics')->group(function () {
-            Route::get('overview', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Analytics overview endpoint not implemented'
-                ], 501);
-            })->name('superadmin.analytics.overview');
+        Route::prefix('analytics')->name('analytics.')->group(function () {
+            Route::get('overview', [SuperAdminController::class, 'getAnalyticsOverview'])
+                ->name('overview');
             
-            Route::get('user-growth', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User growth analytics endpoint not implemented'
-                ], 501);
-            })->name('superadmin.analytics.userGrowth');
+            Route::get('user-growth', [SuperAdminController::class, 'getUserGrowthAnalytics'])
+                ->name('userGrowth');
             
-            Route::get('revenue-trends', function() {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Revenue trends analytics endpoint not implemented'
-                ], 501);
-            })->name('superadmin.analytics.revenueTrends');
+            Route::get('revenue-trends', [SuperAdminController::class, 'getRevenueTrendsAnalytics'])
+                ->name('revenueTrends');
         });
     });
+
+/*
+|--------------------------------------------------------------------------
+| CRSD DATA ACCESS ROUTES - ADMIN WITH DATA ACCESS ONLY
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:api', 'check.data.access'])
+    ->prefix('crsd')
+    ->name('crsd.')
+    ->group(function () {
+        
+        // CRSD 1 Routes
+        Route::prefix('crsd1')
+            ->middleware(['role:admin'])
+            ->name('crsd1.')
+            ->group(function () {
+                Route::get('dashboard', function() {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'CRSD 1 Dashboard',
+                        'data' => [
+                            'description' => 'Customer Relationship System Data 1',
+                            'access_type' => 'crsd1',
+                            'timestamp' => now()->toIso8601String()
+                        ]
+                    ]);
+                })->name('dashboard');
+                
+                Route::get('reports', function() {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'CRSD 1 Reports',
+                        'data' => [
+                            'reports' => [],
+                            'timestamp' => now()->toIso8601String()
+                        ]
+                    ]);
+                })->name('reports');
+            });
+        
+        // CRSD 2 Routes
+        Route::prefix('crsd2')
+            ->middleware(['role:admin'])
+            ->name('crsd2.')
+            ->group(function () {
+                Route::get('dashboard', function() {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'CRSD 2 Dashboard',
+                        'data' => [
+                            'description' => 'Customer Relationship System Data 2',
+                            'access_type' => 'crsd2',
+                            'timestamp' => now()->toIso8601String()
+                        ]
+                    ]);
+                })->name('dashboard');
+                
+                Route::get('reports', function() {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'CRSD 2 Reports',
+                        'data' => [
+                            'reports' => [],
+                            'timestamp' => now()->toIso8601String()
+                        ]
+                    ]);
+                })->name('reports');
+            });
+    });
+
 /*
 |--------------------------------------------------------------------------
 | FALLBACK ROUTE
@@ -713,6 +711,6 @@ Route::fallback(function () {
     return response()->json([
         'success' => false,
         'message' => 'Endpoint not found',
-        'status' => 404
+        'timestamp' => now()->toIso8601String()
     ], 404);
 });
