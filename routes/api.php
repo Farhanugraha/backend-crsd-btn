@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\MenuController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\PaymentsController;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -311,138 +312,172 @@ Route::prefix('payments')
 | ADMIN ROUTES - ADMIN & SUPERADMIN
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:api', 'role:admin,superadmin'])
+Route::middleware(['auth:api'])
     ->prefix('admin')
     ->group(function () {
         
-        // ==================== DASHBOARD & STATISTICS ====================
-        Route::get('dashboard', [AdminController::class, 'dashboard'])
-            ->name('admin.dashboard');
-        
-        // Module selection for admin with multiple CRSD access
-        Route::get('select-module', [AdminController::class, 'selectModule'])
-            ->name('admin.selectModule');
-        
-        // CRSD 1 Dashboard
-        Route::get('crsd1/dashboard', [AdminController::class, 'dashboardCRSD1'])
-            ->name('admin.crsd1.dashboard');
-        
-        // CRSD 2 Dashboard
-        Route::get('crsd2/dashboard', [AdminController::class, 'dashboardCRSD2'])
-            ->name('admin.crsd2.dashboard');
-        
-        // Statistics
-        Route::get('statistics', [AdminController::class, 'getStatistics'])
-            ->name('admin.statistics');
-        
-        // ==================== CRSD ORDERS ====================
-        // All orders (with CRSD filtering)
-        Route::get('orders', [AdminController::class, 'getAllOrders'])
-            ->name('admin.orders.index');
-        
-        // CRSD 1 Orders
-        Route::get('crsd1/orders', function(Request $request) {
-            return app(AdminController::class)->getCRSDOrders($request, 'crsd1');
-        })->name('admin.crsd1.orders');
-        
-        // CRSD 2 Orders
-        Route::get('crsd2/orders', function(Request $request) {
-            return app(AdminController::class)->getCRSDOrders($request, 'crsd2');
-        })->name('admin.crsd2.orders');
-        
-        // ==================== CRSD USERS ====================
-        // CRSD 1 Users
-        Route::get('crsd1/users', function(Request $request) {
-            return app(AdminController::class)->getCRSDUsers($request, 'crsd1');
-        })->name('admin.crsd1.users');
-        
-        // CRSD 2 Users
-        Route::get('crsd2/users', function(Request $request) {
-            return app(AdminController::class)->getCRSDUsers($request, 'crsd2');
-        })->name('admin.crsd2.users');
-        
-        // List all users (with CRSD filtering)
-        Route::get('users', [AdminController::class, 'listUsers'])
-            ->name('admin.users.index');
-        
-        // ==================== REPORTS & EXPORT ====================
-        Route::get('reports', [AdminController::class, 'getReports'])
-            ->name('admin.reports');
-        
-        Route::get('orders-detail', [AdminController::class, 'getOrdersDetail'])
-            ->name('admin.ordersDetail');
-        
-        Route::post('export-reports', [AdminController::class, 'exportReports'])
-            ->name('admin.exportReports');
-        
-        // ==================== USER MANAGEMENT ====================
-        Route::prefix('users')->group(function () {
-            Route::get('{id}', [AdminController::class, 'showUser'])
-                ->whereNumber('id')
-                ->name('admin.users.show');
+        // ==================== GENERAL ADMIN ROUTES (tanpa data_access check) ====================
+        // Route ini auto filter CRSD di controller berdasarkan user's data_access
+        Route::middleware(['role:admin,superadmin'])->group(function () {
+            // Dashboard & module selection
+            Route::get('dashboard', [AdminController::class, 'dashboard'])
+                ->name('admin.dashboard');
             
-            Route::put('{id}', [AdminController::class, 'updateUser'])
-                ->whereNumber('id')
-                ->name('admin.users.update');
+            Route::get('check-module-selection', [AdminController::class, 'checkModuleSelection'])
+                ->name('admin.checkModuleSelection');
             
-            Route::delete('{id}', [AdminController::class, 'deleteUser'])
-                ->whereNumber('id')
-                ->name('admin.users.delete');
+            Route::get('select-module', [AdminController::class, 'selectModule'])
+                ->name('admin.selectModule');
             
-            Route::post('{id}/activate', [AdminController::class, 'activateUser'])
-                ->whereNumber('id')
-                ->name('admin.users.activate');
+            // Statistics & reports
+            Route::get('statistics', [AdminController::class, 'getStatistics'])
+                ->name('admin.statistics');
             
-            Route::post('{id}/deactivate', [AdminController::class, 'deactivateUser'])
-                ->whereNumber('id')
-                ->name('admin.users.deactivate');
-        });
-        
-        // ==================== ORDERS MANAGEMENT ====================
-        Route::prefix('orders')->group(function () {
-            Route::post('batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
-                ->name('admin.orders.batchUpdate');
+            Route::get('reports', [AdminController::class, 'getReports'])
+                ->name('admin.reports');
             
-            Route::get('pending', [OrdersController::class, 'getPendingOrders'])
-                ->name('admin.orders.pending');
+            Route::get('orders-detail', [AdminController::class, 'getOrdersDetail'])
+                ->name('admin.ordersDetail');
             
-            Route::get('status/{status}', [OrdersController::class, 'getOrdersByStatus'])
-                ->whereIn('status', ['processing', 'completed', 'canceled'])
-                ->name('admin.orders.byStatus');
+            Route::post('export-reports', [AdminController::class, 'exportReports'])
+                ->name('admin.exportReports');
             
-            Route::get('{id}', [OrdersController::class, 'getOrderDetail'])
-                ->whereNumber('id')
-                ->name('admin.orders.show');
+            // Orders with CRSD filtering (auto filter di controller)
+            Route::get('orders', [AdminController::class, 'getAllOrders'])
+                ->name('admin.orders.index');
             
-            Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
-                ->whereNumber('id')
-                ->name('admin.orders.updateStatus');
-            
-            Route::put('{id}/items/{itemId}/toggle-check', [OrdersController::class, 'toggleItemChecked'])
-                ->whereNumber(['id', 'itemId'])
-                ->name('admin.orders.toggleItemChecked');
-            
-            Route::get('{id}/checked-items-count', [OrdersController::class, 'getCheckedItemsCount'])
-                ->whereNumber('id')
-                ->name('admin.orders.checkedItemsCount');
-        });
-        
-        // ==================== PAYMENTS MANAGEMENT ====================
-        Route::prefix('payments')->group(function () {
-            Route::get('', [PaymentsController::class, 'getAllPayments'])
+            // Payments with CRSD filtering (auto filter di controller)
+            Route::get('payments', [PaymentsController::class, 'getAllPayments'])
                 ->name('admin.payments.index');
             
-            Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
-                ->whereNumber('paymentId')
-                ->name('admin.payments.confirm');
+            Route::get('payments/status/{status}', [PaymentsController::class, 'getPaymentsByStatus'])
+                ->whereIn('status', ['pending', 'completed', 'rejected', 'failed', 'expired'])
+                ->name('admin.payments.byStatus');
             
-            Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
-                ->whereNumber('paymentId')
-                ->name('admin.payments.reject');
+            // Users with CRSD filtering (auto filter di controller)
+            Route::get('users', [AdminController::class, 'listUsers'])
+                ->name('admin.users.index');
             
-            Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])
-                ->whereNumber('paymentId')
-                ->name('admin.payments.show');
+            // ==================== ORDERS MANAGEMENT ====================
+            Route::prefix('orders')->group(function () {
+                Route::post('batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
+                    ->name('admin.orders.batchUpdate');
+                
+                Route::get('pending', [OrdersController::class, 'getPendingOrders'])
+                    ->name('admin.orders.pending');
+                
+                Route::get('status/{status}', [OrdersController::class, 'getOrdersByStatus'])
+                    ->whereIn('status', ['processing', 'completed', 'canceled'])
+                    ->name('admin.orders.byStatus');
+                
+                Route::get('{id}', [OrdersController::class, 'getOrderDetail'])
+                    ->whereNumber('id')
+                    ->name('admin.orders.show');
+                
+                Route::put('{id}/status', [OrdersController::class, 'updateOrderStatus'])
+                    ->whereNumber('id')
+                    ->name('admin.orders.updateStatus');
+                
+                Route::put('{id}/items/{itemId}/toggle-check', [OrdersController::class, 'toggleItemChecked'])
+                    ->whereNumber(['id', 'itemId'])
+                    ->name('admin.orders.toggleItemChecked');
+                
+                Route::get('{id}/checked-items-count', [OrdersController::class, 'getCheckedItemsCount'])
+                    ->whereNumber('id')
+                    ->name('admin.orders.checkedItemsCount');
+            });
+            
+            // ==================== PAYMENTS MANAGEMENT ====================
+            Route::prefix('payments')->group(function () {
+                // Payment detail by order_id
+                Route::get('order/{orderId}', [PaymentsController::class, 'getPaymentByOrder'])
+                    ->whereNumber('orderId')
+                    ->name('admin.payments.byOrder');
+                
+                // Payment actions
+                Route::put('{paymentId}/confirm', [PaymentsController::class, 'confirmPayment'])
+                    ->whereNumber('paymentId')
+                    ->name('admin.payments.confirm');
+                
+                Route::put('{paymentId}/reject', [PaymentsController::class, 'rejectPayment'])
+                    ->whereNumber('paymentId')
+                    ->name('admin.payments.reject');
+                
+                Route::get('{paymentId}', [PaymentsController::class, 'getPaymentDetail'])
+                    ->whereNumber('paymentId')
+                    ->name('admin.payments.show');
+            });
+            
+            // ==================== USER MANAGEMENT ====================
+            Route::prefix('users')->group(function () {
+                Route::get('{id}', [AdminController::class, 'showUser'])
+                    ->whereNumber('id')
+                    ->name('admin.users.show');
+                
+                Route::put('{id}', [AdminController::class, 'updateUser'])
+                    ->whereNumber('id')
+                    ->name('admin.users.update');
+                
+                Route::delete('{id}', [AdminController::class, 'deleteUser'])
+                    ->whereNumber('id')
+                    ->name('admin.users.delete');
+                
+                Route::post('{id}/activate', [AdminController::class, 'activateUser'])
+                    ->whereNumber('id')
+                    ->name('admin.users.activate');
+                
+                Route::post('{id}/deactivate', [AdminController::class, 'deactivateUser'])
+                    ->whereNumber('id')
+                    ->name('admin.users.deactivate');
+            });
+        });
+        
+        // ==================== CRSD 1 ROUTES (dengan data_access check) ====================
+        // Route ini khusus untuk CRSD 1, middleware akan cek data_access:crsd1
+        Route::middleware(['role:admin,superadmin|data_access:crsd1'])->group(function () {
+            Route::get('crsd1/dashboard', [AdminController::class, 'dashboardCRSD1'])
+                ->name('admin.crsd1.dashboard');
+            
+            Route::get('crsd1/orders', function(Request $request) {
+                return app(AdminController::class)->getCRSDOrders($request, 'crsd1');
+            })->name('admin.crsd1.orders');
+            
+            Route::get('crsd1/payments', function(Request $request) {
+                return app(PaymentsController::class)->getCRSDPayments($request, 'crsd1');
+            })->name('admin.crsd1.payments');
+            
+            Route::get('crsd1/payments/status/{status}', function(Request $request, $status) {
+                return app(PaymentsController::class)->getCRSDPaymentsByStatus($request, 'crsd1', $status);
+            })->whereIn('status', ['pending', 'completed', 'rejected', 'failed', 'expired'])
+              ->name('admin.payments.crsd1.byStatus');
+            
+            Route::get('crsd1/users', function(Request $request) {
+                return app(AdminController::class)->getCRSDUsers($request, 'crsd1');
+            })->name('admin.crsd1.users');
+        });
+        
+        // ==================== CRSD 2 ROUTES (dengan data_access check) ====================
+        // Route ini khusus untuk CRSD 2, middleware akan cek data_access:crsd2
+        Route::middleware(['role:admin,superadmin|data_access:crsd2'])->group(function () {
+            Route::get('crsd2/dashboard', [AdminController::class, 'dashboardCRSD2'])
+                ->name('admin.crsd2.dashboard');
+            
+            Route::get('crsd2/orders', function(Request $request) {
+                return app(AdminController::class)->getCRSDOrders($request, 'crsd2');
+            })->name('admin.crsd2.orders');
+            
+            Route::get('crsd2/payments', function(Request $request) {
+                return app(PaymentsController::class)->getCRSDPayments($request, 'crsd2');
+            })->name('admin.crsd2.payments');
+            
+            Route::get('crsd2/payments/status/{status}', function(Request $request, $status) {
+                return app(PaymentsController::class)->getCRSDPaymentsByStatus($request, 'crsd2', $status);
+            })->whereIn('status', ['pending', 'completed', 'rejected', 'failed', 'expired'])
+              ->name('admin.payments.crsd2.byStatus');
+            
+            Route::get('crsd2/users', function(Request $request) {
+                return app(AdminController::class)->getCRSDUsers($request, 'crsd2');
+            })->name('admin.crsd2.users');
         });
     });
 
@@ -704,7 +739,7 @@ Route::middleware(['auth:api', 'role:superadmin'])
 */
 Route::middleware(['auth:api'])->get('/debug/test-orders', function() {
     try {
-        $user = auth()->user();
+        $user = Auth::guard('api')->user();
         
         // Test database connection
         $ordersCount = \App\Models\Orders::count();

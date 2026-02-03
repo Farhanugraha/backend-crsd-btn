@@ -15,10 +15,7 @@ use Illuminate\Support\Facades\Log;
 
 class AdminController extends Controller
 {
-    /**
-     * Get user's data access from metadata
-     */
-    private function getUserDataAccess()
+     private function getUserDataAccess()
     {
         $user = auth()->guard('api')->user();
         
@@ -29,10 +26,7 @@ class AdminController extends Controller
         return $user->getEffectiveDataAccess();
     }
     
-    /**
-     * Apply CRSD filter to query based on user's data access
-     */
-    private function applyCRSDFilter($query)
+     private function applyCRSDFilter($query)
     {
         $user = auth()->guard('api')->user();
         
@@ -40,27 +34,22 @@ class AdminController extends Controller
             return $query;
         }
         
-        // Superadmin can see everything
         if ($user->role === 'superadmin') {
             return $query;
         }
         
-        // Admin users - filter based on data access
         if ($user->role === 'admin') {
             $dataAccess = $this->getUserDataAccess();
             
             if (empty($dataAccess)) {
-                // No data access - return empty results
                 return $query->whereRaw('1 = 0');
             }
             
-            // Filter based on available data access
             $crsdAccess = array_filter($dataAccess, function($item) {
                 return in_array($item, ['crsd1', 'crsd2']);
             });
             
             if (count($crsdAccess) === 2) {
-                // Admin with both access can see both CRSD 1 and CRSD 2
                 return $query->whereHas('user', function($q) {
                     $q->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
                 });
@@ -77,17 +66,17 @@ class AdminController extends Controller
         return $query;
     }
     
-    /**
-     * ==================== DASHBOARD METHODS ====================
-     */
-    
-    /**
-     * Admin Dashboard
-     */
-    public function dashboard()
+         public function dashboard(Request $request)
     {
         try {
-            $user = auth()->guard('api')->user();
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User tidak terautentikasi'
+                ], 401);
+            }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
                 return response()->json([
@@ -96,47 +85,76 @@ class AdminController extends Controller
                 ], 403);
             }
             
+            // Get user's data access
             $dataAccess = $this->getUserDataAccess();
             
-            // Check if admin needs to select module
-            if ($user->role === 'admin') {
-                $crsdAccess = array_filter($dataAccess, function($item) {
-                    return in_array($item, ['crsd1', 'crsd2']);
-                });
-                
-                if (count($crsdAccess) > 1) {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'Pilih module CRSD',
-                        'requires_module_selection' => true,
-                        'available_modules' => $dataAccess,
-                    ], 200);
-                }
-            }
-
-            // For admin with single access or superadmin
+            // Start orders query with CRSD filter
             $ordersQuery = Orders::query();
             $this->applyCRSDFilter($ordersQuery);
             
+            // Count orders by status - GUNAKAN FIELD YANG KONSISTEN
             $totalOrders = $ordersQuery->count();
             $pendingOrders = $ordersQuery->clone()->where('status', 'pending')->count();
-            $processingOrders = $ordersQuery->clone()->where('order_status', 'processing')->count();
-            $completedOrders = $ordersQuery->clone()->where('order_status', 'completed')->count();
-            $canceledOrders = $ordersQuery->clone()->where('order_status', 'canceled')->count();
             
-            $revenueQuery = Orders::where('status', 'paid');
-            $this->applyCRSDFilter($revenueQuery);
-            $totalRevenue = $revenueQuery->sum('total_price');
-            
-            $pendingPayments = Payments::where('payment_status', 'pending')
-                ->whereHas('order', function($q) {
-                    $this->applyCRSDFilter($q);
+            // Untuk status processing, completed, canceled - coba kedua field
+            $processingOrders = $ordersQuery->clone()
+                ->where(function($q) {
+                    $q->where('order_status', 'processing')
+                      ->orWhere('status', 'processing');
+                })->count();
+                
+            $completedOrders = $ordersQuery->clone()
+                ->where(function($q) {
+                    $q->where('order_status', 'completed')
+                      ->orWhere('status', 'completed');
+                })->count();
+                
+            $canceledOrders = $ordersQuery->clone()
+                ->where(function($q) {
+                    $q->where('order_status', 'canceled')
+                      ->orWhere('status', 'canceled');
                 })->count();
             
+            // Untuk revenue, gunakan orders yang sudah dibayar (status 'paid' atau 'completed')
+            $revenueQuery = Orders::query();
+            $this->applyCRSDFilter($revenueQuery);
+            
+            // Cari revenue dari orders yang sudah dibayar
+            $totalRevenue = $revenueQuery->where(function($q) {
+                $q->where('status', 'paid')
+                  ->orWhere('status', 'completed');
+            })->sum('total_price');
+            
+            // Count pending payments
+            $pendingPayments = Payments::where('payment_status', 'pending')
+                ->whereHas('order', function($q) use ($dataAccess) {
+                    // Filter berdasarkan data_access user
+                    if (!empty($dataAccess)) {
+                        if (in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess)) {
+                            // Filter by user's divisi instead of crsd_type field
+                            $q->whereHas('user', function($q2) {
+                                $q2->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
+                            });
+                        } elseif (in_array('crsd1', $dataAccess)) {
+                            $q->whereHas('user', function($q2) {
+                                $q2->where('divisi', 'CRSD 1');
+                            });
+                        } elseif (in_array('crsd2', $dataAccess)) {
+                            $q->whereHas('user', function($q2) {
+                                $q2->where('divisi', 'CRSD 2');
+                            });
+                        } else {
+                            $q->whereRaw('1 = 0');
+                        }
+                    }
+                })->count();
+            
+            // Count users based on user's data_access
             $usersQuery = User::where('role', 'user');
-            if ($user->role === 'admin') {
-                $dataAccess = $this->getUserDataAccess();
+            
+            if (!empty($dataAccess)) {
                 if (in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess)) {
+                    // Jika user bisa akses kedua divisi, tampilkan semua user
                     $usersQuery->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
                 } elseif (in_array('crsd1', $dataAccess)) {
                     $usersQuery->where('divisi', 'CRSD 1');
@@ -148,13 +166,22 @@ class AdminController extends Controller
             }
             $totalUsers = $usersQuery->count();
             
+            // Count all admins (tanpa filter divisi)
             $totalAdmins = User::whereIn('role', ['admin', 'superadmin'])->count();
+
+            // Tentukan apakah user memiliki akses ke multiple CRSD
+            $hasMultipleAccess = count($dataAccess) > 1;
+            $requiresModuleSelection = $hasMultipleAccess && !$request->has('crsd_type');
 
             return response()->json([
                 'success' => true,
                 'message' => 'Admin dashboard loaded successfully',
                 'data_access' => $dataAccess,
                 'user_role' => $user->role,
+                'requires_selection' => $requiresModuleSelection,
+                'requires_module_selection' => $requiresModuleSelection,
+                'available_modules' => $dataAccess,
+                'shows_all_crsd' => $hasMultipleAccess,
                 'data' => [
                     'orders' => [
                         'total' => $totalOrders,
@@ -174,7 +201,7 @@ class AdminController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
-            Log::error('Dashboard error: ' . $e->getMessage());
+            Log::error('Dashboard error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal memuat dashboard',
@@ -182,14 +209,19 @@ class AdminController extends Controller
             ], 500);
         }
     }
-    
-    /**
-     * CRSD 1 Dashboard
-     */
-    public function dashboardCRSD1()
+
+
+        public function dashboardCRSD1()
     {
         try {
             $user = auth()->guard('api')->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User tidak terautentikasi'
+                ], 401);
+            }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
                 return response()->json([
@@ -198,7 +230,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check if admin has access to CRSD 1
             if ($user->role === 'admin') {
                 $dataAccess = $this->getUserDataAccess();
                 if (!in_array('crsd1', $dataAccess)) {
@@ -215,11 +246,30 @@ class AdminController extends Controller
             
             $totalOrders = $ordersQuery->count();
             $pendingOrders = $ordersQuery->clone()->where('status', 'pending')->count();
-            $processingOrders = $ordersQuery->clone()->where('order_status', 'processing')->count();
-            $completedOrders = $ordersQuery->clone()->where('order_status', 'completed')->count();
-            $canceledOrders = $ordersQuery->clone()->where('order_status', 'canceled')->count();
             
-            $revenueQuery = Orders::where('status', 'paid')
+            // Gunakan kedua field untuk kompatibilitas
+            $processingOrders = $ordersQuery->clone()
+                ->where(function($q) {
+                    $q->where('order_status', 'processing')
+                      ->orWhere('status', 'processing');
+                })->count();
+                
+            $completedOrders = $ordersQuery->clone()
+                ->where(function($q) {
+                    $q->where('order_status', 'completed')
+                      ->orWhere('status', 'completed');
+                })->count();
+                
+            $canceledOrders = $ordersQuery->clone()
+                ->where(function($q) {
+                    $q->where('order_status', 'canceled')
+                      ->orWhere('status', 'canceled');
+                })->count();
+            
+            $revenueQuery = Orders::where(function($q) {
+                    $q->where('status', 'paid')
+                      ->orWhere('status', 'completed');
+                })
                 ->whereHas('user', function($q) {
                     $q->where('divisi', 'CRSD 1');
                 });
@@ -233,6 +283,8 @@ class AdminController extends Controller
             $totalUsers = User::where('role', 'user')
                 ->where('divisi', 'CRSD 1')
                 ->count();
+            
+            $totalAdmins = User::whereIn('role', ['admin', 'superadmin'])->count();
 
             return response()->json([
                 'success' => true,
@@ -250,11 +302,14 @@ class AdminController extends Controller
                         'total_revenue' => $totalRevenue ?? 0,
                         'pending_payments' => $pendingPayments,
                     ],
-                    'users' => $totalUsers,
+                    'users' => [
+                        'total_users' => $totalUsers,
+                        'total_admins' => $totalAdmins,
+                    ]
                 ]
             ], 200);
         } catch (\Exception $e) {
-            Log::error('CRSD 1 Dashboard error: ' . $e->getMessage());
+            Log::error('CRSD 1 Dashboard error: ' . $e->getMessage() . "\n" . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal memuat dashboard CRSD 1',
@@ -262,10 +317,8 @@ class AdminController extends Controller
             ], 500);
         }
     }
+
     
-    /**
-     * CRSD 2 Dashboard
-     */
     public function dashboardCRSD2()
     {
         try {
@@ -278,7 +331,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check if admin has access to CRSD 2
             if ($user->role === 'admin') {
                 $dataAccess = $this->getUserDataAccess();
                 if (!in_array('crsd2', $dataAccess)) {
@@ -330,7 +382,10 @@ class AdminController extends Controller
                         'total_revenue' => $totalRevenue ?? 0,
                         'pending_payments' => $pendingPayments,
                     ],
-                    'users' => $totalUsers,
+                    'users' => [
+                        'total_users' => $totalUsers,
+                        'total_admins' => 0,
+                    ]
                 ]
             ], 200);
         } catch (\Exception $e) {
@@ -343,239 +398,6 @@ class AdminController extends Controller
         }
     }
     
-    /**
-     * ==================== ORDER METHODS ====================
-     */
-    
-    /**
-     * Get all orders with CRSD filtering
-     */
-    public function getAllOrders(Request $request)
-    {
-        try {
-            Log::info('=== getAllOrders Method Called ===');
-            
-            $user = auth()->guard('api')->user();
-
-            if (!$user) {
-                Log::error('No authenticated user');
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
-            }
-
-            Log::info('User: ' . $user->id . ' - ' . $user->email . ' - Role: ' . $user->role . ' - Divisi: ' . $user->divisi);
-
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-
-            // Test basic query first
-            $testQuery = Orders::with('user')->limit(5)->get();
-            Log::info('Test query count: ' . $testQuery->count());
-            
-            foreach ($testQuery as $order) {
-                Log::info('Order ' . $order->id . ': User Divisi = ' . ($order->user->divisi ?? 'NULL'));
-            }
-
-            // HAPUS 'areas' dari with() untuk menghindari error
-            $query = Orders::with(['user', 'items.menu', 'items.menu.restaurant']) // Hapus .area dan areas
-                ->orderBy('created_at', 'desc');
-            
-            // Apply CRSD filter
-            $this->applyCRSDFilter($query);
-            
-            Log::info('After CRSD filter, query count: ' . $query->count());
-            
-            // Apply filters from request
-            if ($request->has('status') && $request->status !== 'all') {
-                $query->where('order_status', $request->status);
-                Log::info('Applied status filter: ' . $request->status);
-            }
-            
-            // Filter berdasarkan area (jika diperlukan nanti, tapi table order_areas tidak ada)
-            // if ($request->has('area_id') && $request->area_id !== 'all') {
-            //     $query->whereHas('areas', function($q) use ($request) {
-            //         $q->where('id', $request->area_id);
-            //     });
-            //     Log::info('Applied area filter: ' . $request->area_id);
-            // }
-            
-            if ($request->has('date')) {
-                $query->whereDate('created_at', $request->date);
-                Log::info('Applied date filter: ' . $request->date);
-            }
-            
-            if ($request->has('crsd_type') && $request->crsd_type !== 'all') {
-                $crsdType = $request->crsd_type;
-                $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
-                $query->whereHas('user', function($q) use ($divisiName) {
-                    $q->where('divisi', $divisiName);
-                });
-                Log::info('Applied CRSD filter: ' . $crsdType);
-            }
-            
-            if ($request->has('search')) {
-                $search = $request->search;
-                $query->where(function($q) use ($search) {
-                    $q->where('order_code', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($q2) use ($search) {
-                          $q2->where('name', 'like', "%{$search}%")
-                             ->orWhere('email', 'like', "%{$search}%")
-                             ->orWhere('phone', 'like', "%{$search}%");
-                      })
-                      ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
-                          $q3->where('name', 'like', "%{$search}%");
-                      });
-                });
-                Log::info('Applied search filter: ' . $search);
-            }
-
-            $orders = $query->get();
-            
-            Log::info('Final orders count: ' . $orders->count());
-            
-            // Add crsd_type to each order
-            $orders->each(function($order) {
-                if ($order->user && $order->user->divisi === 'CRSD 2') {
-                    $order->crsd_type = 'crsd2';
-                } else {
-                    $order->crsd_type = 'crsd1';
-                }
-            });
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Orders retrieved successfully',
-                'debug' => [
-                    'user_id' => $user->id,
-                    'user_role' => $user->role,
-                    'user_divisi' => $user->divisi,
-                    'total_orders' => $orders->count(),
-                ],
-                'data' => $orders
-            ], 200);
-            
-        } catch (\Exception $e) {
-            Log::error('Error in getAllOrders: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal mengambil data pesanan',
-                'error' => env('APP_DEBUG') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-    
-    /**
-     * Get orders for specific CRSD
-     */
-    public function getCRSDOrders(Request $request, $crsdType)
-    {
-        try {
-            Log::info('=== getCRSDOrders Method Called ===');
-            Log::info('CRSD Type: ' . $crsdType);
-            
-            $user = auth()->guard('api')->user();
-
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-            
-            // Validate CRSD type
-            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tipe CRSD tidak valid'
-                ], 400);
-            }
-            
-            // Check if admin has access to this CRSD
-            if ($user->role === 'admin') {
-                $dataAccess = $this->getUserDataAccess();
-                if (!in_array($crsdType, $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
-                    ], 403);
-                }
-            }
-            
-            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
-            
-            Log::info('Filtering for divisi: ' . $divisiName);
-            
-            $query = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
-                ->whereHas('user', function($q) use ($divisiName) {
-                    $q->where('divisi', $divisiName);
-                })
-                ->orderBy('created_at', 'desc');
-            
-            // Apply filters from request
-            if ($request->has('status') && $request->status !== 'all') {
-                $query->where('order_status', $request->status);
-            }
-            
-            if ($request->has('date')) {
-                $query->whereDate('created_at', $request->date);
-            }
-            
-            if ($request->has('search')) {
-                $search = $request->search;
-                $query->where(function($q) use ($search) {
-                    $q->where('order_code', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($q2) use ($search) {
-                          $q2->where('name', 'like', "%{$search}%")
-                             ->orWhere('email', 'like', "%{$search}%")
-                             ->orWhere('phone', 'like', "%{$search}%");
-                      })
-                      ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
-                          $q3->where('name', 'like', "%{$search}%");
-                      });
-                });
-            }
-
-            $orders = $query->get();
-            
-            Log::info('Orders found for ' . $divisiName . ': ' . $orders->count());
-            
-            // Add crsd_type to each order
-            $orders->each(function($order) use ($crsdType) {
-                $order->crsd_type = $crsdType;
-            });
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Orders retrieved successfully for ' . strtoupper($crsdType),
-                'crsd_type' => $crsdType,
-                'data' => $orders
-            ], 200);
-            
-        } catch (\Exception $e) {
-            Log::error('Error in getCRSDOrders: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal mengambil data pesanan',
-                'error' => env('APP_DEBUG') ? $e->getMessage() : null
-            ], 500);
-        }
-    }
-    
-    /**
-     * ==================== STATISTICS & REPORTS ====================
-     */
-    
-    /**
-     * Get Statistics with CRSD filtering
-     */
     public function getStatistics(Request $request)
     {
         try {
@@ -588,17 +410,14 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            // Get date range from request
             $startDateInput = $request->get('start_date');
             $endDateInput = $request->get('end_date');
 
-            // Default to today if not provided
             if (!$startDateInput || !$endDateInput) {
                 $endDateInput = now()->toDateString();
                 $startDateInput = now()->toDateString();
             }
 
-            // Validate and parse dates
             try {
                 $startDate = Carbon::parse($startDateInput)->startOfDay();
                 $endDate = Carbon::parse($endDateInput)->endOfDay();
@@ -616,27 +435,22 @@ class AdminController extends Controller
                 ], 400);
             }
 
-            // Base query with CRSD filter
             $baseQuery = Orders::whereBetween('created_at', [$startDate, $endDate]);
             $this->applyCRSDFilter($baseQuery);
             
             $totalOrders = $baseQuery->count();
             
-            // Total Revenue (paid orders) with CRSD filter
             $revenueQuery = Orders::where('status', 'paid')
                 ->whereBetween('created_at', [$startDate, $endDate]);
             $this->applyCRSDFilter($revenueQuery);
             $totalRevenue = (int) $revenueQuery->sum('total_price');
             
-            // Orders by order_status with CRSD filter
             $completedOrders = $baseQuery->clone()->where('order_status', 'completed')->count();
             $processingOrders = $baseQuery->clone()->where('order_status', 'processing')->count();
             $canceledOrders = $baseQuery->clone()->where('order_status', 'canceled')->count();
             
-            // Average order value
             $averageOrderValue = $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0;
             
-            // Today's statistics with CRSD filter
             $todayStart = now()->startOfDay();
             $todayEnd = now()->endOfDay();
             
@@ -649,7 +463,6 @@ class AdminController extends Controller
             $this->applyCRSDFilter($todayRevenueQuery);
             $todayRevenue = (int) $todayRevenueQuery->sum('total_price');
             
-            // Calculate growth (previous period vs current period)
             $periodDays = $endDate->diffInDays($startDate) + 1;
             $previousPeriodStart = (clone $startDate)->subDays($periodDays)->startOfDay();
             $previousPeriodEnd = (clone $startDate)->subDay()->endOfDay();
@@ -671,7 +484,6 @@ class AdminController extends Controller
                 ? (($totalOrders - $previousPeriodOrders) / $previousPeriodOrders * 100)
                 : ($totalOrders > 0 ? 100 : 0);
 
-            // Chart data - Orders and Revenue per day with CRSD filter
             $chartData = [];
             $currentDate = clone $startDate;
             
@@ -724,9 +536,6 @@ class AdminController extends Controller
         }
     }
 
-    /**
-     * Get Reports with CRSD filtering
-     */
     public function getReports(Request $request)
     {
         try {
@@ -739,167 +548,8 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            // Get date range from request (optional)
-            $startDateInput = $request->get('start_date');
-            $endDateInput = $request->get('end_date');
-            
-            $query = Orders::query();
-            $this->applyCRSDFilter($query);
-
-            // Filter by date range jika ada
-            if ($startDateInput && $endDateInput) {
-                try {
-                    $startDate = Carbon::parse($startDateInput)->startOfDay();
-                    $endDate = Carbon::parse($endDateInput)->endOfDay();
-                    
-                    if ($startDate <= $endDate) {
-                        $query->whereBetween('created_at', [$startDate, $endDate]);
-                    }
-                } catch (\Exception $e) {
-                    // Ignore invalid dates
-                }
-            }
-
-            // Total orders
-            $totalOrders = $query->count();
-
-            // Orders by order_status with CRSD filter
-            $ordersByStatus = Orders::selectRaw('order_status as status, COUNT(*) as total')
-                ->when($startDateInput && $endDateInput, function($q) use ($startDateInput, $endDateInput) {
-                    try {
-                        $startDate = Carbon::parse($startDateInput)->startOfDay();
-                        $endDate = Carbon::parse($endDateInput)->endOfDay();
-                        $q->whereBetween('created_at', [$startDate, $endDate]);
-                    } catch (\Exception $e) {
-                        // Ignore invalid dates
-                    }
-                })
-                ->tap(function($q) {
-                    $this->applyCRSDFilter($q);
-                })
-                ->groupBy('order_status')
-                ->get()
-                ->map(function ($item) {
-                    return [
-                        'status' => $item->status ?? 'unknown',
-                        'total' => $item->total,
-                    ];
-                })
-                ->toArray();
-
-            // Payment summary with CRSD filter
-            $paymentQuery = Payments::query();
-            if ($startDateInput && $endDateInput) {
-                try {
-                    $startDate = Carbon::parse($startDateInput)->startOfDay();
-                    $endDate = Carbon::parse($endDateInput)->endOfDay();
-                    $paymentQuery->whereBetween('created_at', [$startDate, $endDate]);
-                } catch (\Exception $e) {
-                    // Ignore invalid dates
-                }
-            }
-            
-            $paymentQuery->whereHas('order', function($q) {
-                $this->applyCRSDFilter($q);
-            });
-
-            $paymentSummary = $paymentQuery->selectRaw('payment_status as status, COUNT(*) as total, SUM(amount) as total_amount')
-                ->groupBy('payment_status')
-                ->get()
-                ->map(function ($item) {
-                    return [
-                        'status' => $item->status ?? 'unknown',
-                        'total' => $item->total,
-                        'total_amount' => (int) ($item->total_amount ?? 0),
-                    ];
-                })
-                ->toArray();
-
-            // User statistics with CRSD filter
-            $userQuery = User::where('role', 'user');
-            $user = auth()->guard('api')->user();
-            if ($user->role === 'admin') {
-                $dataAccess = $this->getUserDataAccess();
-                if (in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess)) {
-                    $userQuery->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
-                } elseif (in_array('crsd1', $dataAccess)) {
-                    $userQuery->where('divisi', 'CRSD 1');
-                } elseif (in_array('crsd2', $dataAccess)) {
-                    $userQuery->where('divisi', 'CRSD 2');
-                } else {
-                    $userQuery->whereRaw('1 = 0');
-                }
-            }
-            
-            $userStatistics = [
-                'total_users' => $userQuery->count(),
-                'active_users' => $userQuery->clone()->where('is_active', 1)->count(),
-            ];
-
-            // Top users with order count and CRSD filter
-            $topUsers = User::withCount(['orders' => function($q) {
-                $this->applyCRSDFilter($q);
-            }])
-                ->where('role', 'user')
-                ->orderBy('orders_count', 'desc')
-                ->limit(10)
-                ->get()
-                ->map(function ($user) {
-                    return [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'orders_count' => $user->orders_count ?? 0,
-                    ];
-                })
-                ->toArray();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Reports retrieved successfully',
-                'data' => [
-                    'total_orders' => $totalOrders,
-                    'orders_by_status' => $ordersByStatus,
-                    'payment_summary' => $paymentSummary,
-                    'user_statistics' => $userStatistics,
-                    'top_users' => $topUsers,
-                ]
-            ], 200);
-
-        } catch (\Exception $e) {
-            Log::error('getReports error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal mengambil laporan: ' . $e->getMessage(),
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get Orders Detail with CRSD filtering
-     */
-    public function getOrdersDetail(Request $request)
-    {
-        try {
-            $user = auth()->guard('api')->user();
-
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-
-            // Get date range from request
-            $startDateInput = $request->get('start_date');
-            $endDateInput = $request->get('end_date');
-
-            // Default ke bulan ini
-            if (!$startDateInput || !$endDateInput) {
-                $endDateInput = now()->toDateString();
-                $startDateInput = now()->subMonth()->toDateString();
-            }
+            $startDateInput = $request->get('start_date', now()->startOfMonth()->toDateString());
+            $endDateInput = $request->get('end_date', now()->toDateString());
 
             try {
                 $startDate = Carbon::parse($startDateInput)->startOfDay();
@@ -918,104 +568,231 @@ class AdminController extends Controller
                 ], 400);
             }
 
-            // Get all orders with items and menu, apply CRSD filter
-            $query = Orders::with(['items.menu', 'user'])
+            $baseQuery = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
                 ->whereBetween('created_at', [$startDate, $endDate]);
             
-            $this->applyCRSDFilter($query);
+            $this->applyCRSDFilter($baseQuery);
             
-            $orders = $query->orderBy('created_at', 'asc')->get();
-
-            // Group by date
-            $ordersByDate = [];
-            $cumulativeTotal = 0;
-
-            $orders->groupBy(function($order) {
-                return $order->created_at->format('Y-m-d');
-            })->each(function($dayOrders, $date) use (&$cumulativeTotal, &$ordersByDate) {
-                $dailyTotal = 0;
-                
-                $mappedOrders = $dayOrders->map(function($order) use (&$dailyTotal) {
-                    $orderTotal = (int) $order->total_price;
-                    $dailyTotal += $orderTotal;
-                    
-                    return [
-                        'order_id' => (int) $order->id,
-                        'order_number' => $order->order_code ?? 'ORD-' . $order->id,
-                        'customer' => $order->user->name ?? 'Guest',
-                        'status' => $order->order_status ?? 'pending',
-                        'items' => $order->items->map(function($item) {
-                            $price = (int) ($item->price ?? 0);
-                            $quantity = (int) ($item->quantity ?? 1);
-                            $subtotal = $price * $quantity;
-                            
-                            return [
-                                'name' => $item->menu?->name ?? 'Unknown Product',
-                                'quantity' => $quantity,
-                                'price' => $price,
-                                'subtotal' => $subtotal
-                            ];
-                        })->toArray(),
-                        'total' => $orderTotal,
-                        'created_at' => $order->created_at->format('Y-m-d H:i:s')
-                    ];
-                })->toArray();
-                
-                $cumulativeTotal += $dailyTotal;
-                
-                $ordersByDate[] = [
-                    'date' => $date,
-                    'total_orders' => count($mappedOrders),
-                    'daily_total' => (int) $dailyTotal,
-                    'cumulative_total' => (int) $cumulativeTotal,
-                    'orders' => $mappedOrders
-                ];
+            $totalOrders = $baseQuery->count();
+            
+            $revenueQuery = Orders::where('status', 'paid')
+                ->whereBetween('created_at', [$startDate, $endDate]);
+            $this->applyCRSDFilter($revenueQuery);
+            $totalRevenue = (int) $revenueQuery->sum('total_price');
+            
+            $completedOrders = $baseQuery->clone()->where('order_status', 'completed')->count();
+            $processingOrders = $baseQuery->clone()->where('order_status', 'processing')->count();
+            $pendingOrders = $baseQuery->clone()->where('status', 'pending')->count();
+            $canceledOrders = $baseQuery->clone()->where('order_status', 'canceled')->count();
+            
+            $ordersQuery = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->orderBy('created_at', 'desc');
+            
+            $this->applyCRSDFilter($ordersQuery);
+            
+            if ($request->has('status') && $request->status !== 'all') {
+                $ordersQuery->where('order_status', $request->status);
+            }
+            
+            if ($request->has('payment_status') && $request->payment_status !== 'all') {
+                $ordersQuery->where('status', $request->payment_status);
+            }
+            
+            $orders = $ordersQuery->get();
+            
+            $orders->each(function($order) {
+                if ($order->user && $order->user->divisi === 'CRSD 2') {
+                    $order->crsd_type = 'crsd2';
+                } else {
+                    $order->crsd_type = 'crsd1';
+                }
             });
-
-            // Overall summary
-            $totalOrders = $orders->count();
-            $overallTotal = (int) $orders->sum('total_price');
-
-            Log::info('Orders Detail Response', [
-                'total_orders' => $totalOrders,
-                'total_revenue' => $overallTotal,
-                'orders_by_date_count' => count($ordersByDate),
-                'start_date' => $startDate->format('Y-m-d'),
-                'end_date' => $endDate->format('Y-m-d')
-            ]);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Orders detail retrieved successfully',
+                'message' => 'Laporan berhasil dimuat',
                 'data' => [
-                    'period' => [
-                        'start_date' => $startDate->format('Y-m-d'),
-                        'end_date' => $endDate->format('Y-m-d'),
-                    ],
                     'summary' => [
+                        'period' => [
+                            'start_date' => $startDate->format('Y-m-d'),
+                            'end_date' => $endDate->format('Y-m-d'),
+                        ],
                         'total_orders' => $totalOrders,
-                        'total_revenue' => $overallTotal,
-                        'average_order_value' => $totalOrders > 0 ? (int) ($overallTotal / $totalOrders) : 0,
+                        'total_revenue' => $totalRevenue,
+                        'completed_orders' => $completedOrders,
+                        'processing_orders' => $processingOrders,
+                        'pending_orders' => $pendingOrders,
+                        'canceled_orders' => $canceledOrders,
+                        'average_order_value' => $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0,
                     ],
-                    'orders_by_date' => $ordersByDate
+                    'orders' => $orders,
                 ]
             ], 200);
 
         } catch (\Exception $e) {
-            Log::error('getOrdersDetail error: ' . $e->getMessage(), [
-                'trace' => $e->getTraceAsString()
-            ]);
+            Log::error('getReports error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil detail orders: ' . $e->getMessage(),
-                'error' => $e->getMessage()
+                'message' => 'Gagal mengambil laporan: ' . $e->getMessage()
             ], 500);
         }
     }
+    
+    public function getOrdersDetail(Request $request)
+    {
+        try {
+            $user = auth()->guard('api')->user();
 
-    /**
-     * Export Reports to Excel
-     */
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+
+            $startDateInput = $request->get('start_date', now()->subMonth()->toDateString());
+            $endDateInput = $request->get('end_date', now()->toDateString());
+
+            try {
+                $startDate = Carbon::parse($startDateInput)->startOfDay();
+                $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+                if ($startDate > $endDate) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                    ], 400);
+                }
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Format tanggal tidak valid'
+                ], 400);
+            }
+
+            $query = Orders::with(['user', 'items.menu'])
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->orderBy('created_at', 'desc');
+            
+            $this->applyCRSDFilter($query);
+            
+            if ($request->has('status') && $request->status !== 'all') {
+                $query->where('order_status', $request->status);
+            }
+            
+            if ($request->has('payment_status') && $request->payment_status !== 'all') {
+                $query->where('status', $request->payment_status);
+            }
+            
+            if ($request->has('crsd_type') && $request->crsd_type !== 'all') {
+                $crsdType = $request->crsd_type;
+                $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+                $query->whereHas('user', function($q) use ($divisiName) {
+                    $q->where('divisi', $divisiName);
+                });
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('order_code', 'like', "%{$search}%")
+                      ->orWhereHas('user', function($q2) use ($search) {
+                          $q2->where('name', 'like', "%{$search}%")
+                             ->orWhere('email', 'like', "%{$search}%")
+                             ->orWhere('phone', 'like', "%{$search}%");
+                      });
+                });
+            }
+
+            $orders = $query->get();
+            
+            // Format response sesuai dengan frontend
+            $ordersByDate = [];
+            $cumulativeTotal = 0;
+            $totalRevenue = 0;
+
+            foreach ($orders as $order) {
+                $date = $order->created_at->format('Y-m-d');
+                
+                if (!isset($ordersByDate[$date])) {
+                    $ordersByDate[$date] = [
+                        'date' => $date,
+                        'orders' => [],
+                        'daily_total' => 0,
+                        'total_orders' => 0
+                    ];
+                }
+                
+                $orderTotal = (int) $order->total_price;
+                $ordersByDate[$date]['daily_total'] += $orderTotal;
+                $ordersByDate[$date]['total_orders']++;
+                $totalRevenue += $orderTotal;
+                
+                $orderData = [
+                    'order_id' => $order->id,
+                    'order_number' => $order->order_code ?? 'ORD-' . $order->id,
+                    'customer' => $order->user->name ?? 'Guest',
+                    'status' => $order->order_status ?? 'pending',
+                    'payment_status' => $order->status ?? 'pending',
+                    'items' => $order->items->map(function($item) {
+                        return [
+                            'name' => $item->menu?->name ?? 'Unknown Product',
+                            'quantity' => (int) $item->quantity,
+                            'price' => (int) $item->price,
+                            'subtotal' => (int) $item->quantity * (int) $item->price
+                        ];
+                    })->toArray(),
+                    'total' => $orderTotal,
+                    'created_at' => $order->created_at->format('Y-m-d H:i:s')
+                ];
+                
+                $ordersByDate[$date]['orders'][] = $orderData;
+            }
+
+            // Convert to array and calculate cumulative total
+            $formattedOrdersByDate = [];
+            ksort($ordersByDate);
+            
+            foreach ($ordersByDate as $date => $data) {
+                $cumulativeTotal += $data['daily_total'];
+                $formattedOrdersByDate[] = [
+                    'date' => $date,
+                    'total_orders' => $data['total_orders'],
+                    'daily_total' => $data['daily_total'],
+                    'cumulative_total' => $cumulativeTotal,
+                    'orders' => $data['orders']
+                ];
+            }
+
+            $responseData = [
+                'period' => [
+                    'start_date' => $startDate->format('Y-m-d'),
+                    'end_date' => $endDate->format('Y-m-d'),
+                ],
+                'summary' => [
+                    'total_orders' => $orders->count(),
+                    'total_revenue' => $totalRevenue,
+                    'average_order_value' => $orders->count() > 0 ? (int) ($totalRevenue / $orders->count()) : 0,
+                ],
+                'orders_by_date' => $formattedOrdersByDate
+            ];
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Orders detail retrieved successfully',
+                'data' => $responseData
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('getOrdersDetail error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil detail orders: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+    
     public function exportReports(Request $request)
     {
         try {
@@ -1028,13 +805,20 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            // Get date range
-            $startDate = $request->get('start_date', now()->subMonth()->toDateString());
-            $endDate = $request->get('end_date', now()->toDateString());
+            $startDateInput = $request->get('start_date', now()->subMonth()->toDateString());
+            $endDateInput = $request->get('end_date', now()->toDateString());
+            $exportType = $request->get('export_type', 'excel');
 
             try {
-                $start = Carbon::parse($startDate)->startOfDay();
-                $end = Carbon::parse($endDate)->endOfDay();
+                $startDate = Carbon::parse($startDateInput)->startOfDay();
+                $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+                if ($startDate > $endDate) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                    ], 400);
+                }
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
@@ -1042,54 +826,327 @@ class AdminController extends Controller
                 ], 400);
             }
 
-            // Get orders with CRSD filter
             $query = Orders::with(['user', 'items.menu'])
-                ->whereBetween('created_at', [$start, $end]);
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->orderBy('created_at', 'desc');
             
             $this->applyCRSDFilter($query);
             
-            $orders = $query->orderBy('created_at', 'asc')->get();
+            $orders = $query->get();
 
-            // Format data for export
+            if ($orders->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tidak ada data untuk diekspor pada periode ini'
+                ], 404);
+            }
+
+            // Format data untuk export - SESUAI DENGAN FRONTEND
             $exportData = $orders->map(function($order) {
                 return [
+                    'Order ID' => $order->id,
                     'Order Code' => $order->order_code,
-                    'Customer Name' => $order->user->name,
-                    'Customer Email' => $order->user->email,
-                    'Customer Phone' => $order->user->phone,
-                    'Customer Divisi' => $order->user->divisi,
+                    'Customer Name' => $order->user->name ?? 'Unknown',
+                    'Customer Email' => $order->user->email ?? 'Unknown',
+                    'Customer Divisi' => $order->user->divisi ?? 'Unknown',
                     'Order Status' => $order->order_status,
                     'Payment Status' => $order->status,
                     'Total Amount' => (int) $order->total_price,
                     'Order Date' => $order->created_at->format('Y-m-d H:i:s'),
                     'Items Count' => $order->items->count(),
+                    'Items' => $order->items->map(function($item) {
+                        return $item->menu?->name ?? 'Unknown Product';
+                    })->implode(', ')
                 ];
             });
+
+            $summaryData = [
+                'Period' => $startDate->format('Y-m-d') . ' to ' . $endDate->format('Y-m-d'),
+                'Total Orders' => $orders->count(),
+                'Total Revenue' => (int) $orders->where('status', 'paid')->sum('total_price'),
+                'Completed Orders' => $orders->where('order_status', 'completed')->count(),
+                'Pending Orders' => $orders->where('order_status', 'pending')->count(),
+                'Canceled Orders' => $orders->where('order_status', 'canceled')->count(),
+            ];
 
             return response()->json([
                 'success' => true,
                 'message' => 'Export data ready',
-                'data' => $exportData,
-                'filename' => 'orders_export_' . date('Ymd_His') . '.xlsx'
+                'data' => [
+                    'summary' => $summaryData,
+                    'orders' => $exportType === 'detailed' ? $exportData : $exportData->take(100), // Limit untuk response
+                ],
+                'export_type' => $exportType,
+                'filename' => 'orders_export_' . $startDate->format('Ymd') . '_to_' . $endDate->format('Ymd') . '.json',
+                'download_url' => $exportType === 'excel' ? 
+                    url("/api/admin/export/excel?start_date={$startDateInput}&end_date={$endDateInput}") : null
             ], 200);
 
         } catch (\Exception $e) {
             Log::error('Export reports error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal menyiapkan data export',
+                'message' => 'Gagal menyiapkan data export: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    public function checkModuleSelection()
+    {
+        try {
+            $user = auth()->guard('api')->user();
+
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            $dataAccess = $this->getUserDataAccess();
+            $crsdTypes = array_filter($dataAccess, function($item) {
+                return in_array($item, ['crsd1', 'crsd2']);
+            });
+            
+            if (count($crsdTypes) > 1) {
+                return response()->json([
+                    'success' => true,
+                    'requires_selection' => true,
+                    'requires_module_selection' => true,
+                    'available_modules' => array_values($crsdTypes)
+                ], 200);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'requires_selection' => false,
+                'requires_module_selection' => false,
+                'available_modules' => array_values($crsdTypes)
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Check module selection error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memeriksa pilihan module',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
-
-    /**
-     * ==================== USER MANAGEMENT ====================
-     */
     
-    /**
-     * List all users with CRSD filtering for admin
-     */
+    public function selectModule(Request $request)
+    {
+        try {
+            $user = auth()->guard('api')->user();
+
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            $validator = Validator::make($request->all(), [
+                'module' => 'required|in:crsd1,crsd2'
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+            
+            $dataAccess = $this->getUserDataAccess();
+            
+            if ($user->role === 'admin' && !in_array($request->module, $dataAccess)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses ke module ini'
+                ], 403);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Module berhasil dipilih',
+                'selected_module' => $request->module,
+                'redirect_url' => '/admin/' . $request->module . '/dashboard'
+            ], 200);
+            
+        } catch (\Exception $e) {
+            Log::error('Select module error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal memilih module',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    public function getAllOrders(Request $request)
+    {
+        try {
+            $user = auth()->guard('api')->user();
+
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated'
+                ], 401);
+            }
+
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+
+            $query = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
+                ->orderBy('created_at', 'desc');
+            
+            $this->applyCRSDFilter($query);
+            
+            if ($request->has('status') && $request->status !== 'all') {
+                $query->where('order_status', $request->status);
+            }
+            
+            if ($request->has('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            if ($request->has('crsd_type') && $request->crsd_type !== 'all') {
+                $crsdType = $request->crsd_type;
+                $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+                $query->whereHas('user', function($q) use ($divisiName) {
+                    $q->where('divisi', $divisiName);
+                });
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('order_code', 'like', "%{$search}%")
+                      ->orWhereHas('user', function($q2) use ($search) {
+                          $q2->where('name', 'like', "%{$search}%")
+                             ->orWhere('email', 'like', "%{$search}%")
+                             ->orWhere('phone', 'like', "%{$search}%");
+                      })
+                      ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
+                          $q3->where('name', 'like', "%{$search}%");
+                      });
+                });
+            }
+
+            $orders = $query->get();
+            
+            $orders->each(function($order) {
+                if ($order->user && $order->user->divisi === 'CRSD 2') {
+                    $order->crsd_type = 'crsd2';
+                } else {
+                    $order->crsd_type = 'crsd1';
+                }
+            });
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Orders retrieved successfully',
+                'data' => $orders
+            ], 200);
+            
+        } catch (\Exception $e) {
+            Log::error('Error in getAllOrders: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil data pesanan',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    public function getCRSDOrders(Request $request, $crsdType)
+    {
+        try {
+            $user = auth()->guard('api')->user();
+
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tipe CRSD tidak valid'
+                ], 400);
+            }
+            
+            if ($user->role === 'admin') {
+                $dataAccess = $this->getUserDataAccess();
+                if (!in_array($crsdType, $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
+                    ], 403);
+                }
+            }
+            
+            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+            
+            $query = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
+                ->whereHas('user', function($q) use ($divisiName) {
+                    $q->where('divisi', $divisiName);
+                })
+                ->orderBy('created_at', 'desc');
+            
+            if ($request->has('status') && $request->status !== 'all') {
+                $query->where('order_status', $request->status);
+            }
+            
+            if ($request->has('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('order_code', 'like', "%{$search}%")
+                      ->orWhereHas('user', function($q2) use ($search) {
+                          $q2->where('name', 'like', "%{$search}%")
+                             ->orWhere('email', 'like', "%{$search}%")
+                             ->orWhere('phone', 'like', "%{$search}%");
+                      })
+                      ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
+                          $q3->where('name', 'like', "%{$search}%");
+                      });
+                });
+            }
+
+            $orders = $query->get();
+            
+            $orders->each(function($order) use ($crsdType) {
+                $order->crsd_type = $crsdType;
+            });
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'Orders retrieved successfully for ' . strtoupper($crsdType),
+                'crsd_type' => $crsdType,
+                'data' => $orders
+            ], 200);
+            
+        } catch (\Exception $e) {
+            Log::error('Error in getCRSDOrders: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil data pesanan',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
     public function listUsers(Request $request)
     {
         try {
@@ -1103,24 +1160,18 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
             
             if ($user->role === 'admin') {
-                // Admin hanya bisa lihat user biasa
                 $query->where('role', 'user');
                 
-                // Apply CRSD filter based on data access
                 $dataAccess = $this->getUserDataAccess();
                 if (in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess)) {
-                    // Can see users from both divisi
                     $query->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
                 } elseif (in_array('crsd1', $dataAccess)) {
                     $query->where('divisi', 'CRSD 1');
                 } elseif (in_array('crsd2', $dataAccess)) {
                     $query->where('divisi', 'CRSD 2');
                 } else {
-                    $query->whereRaw('1 = 0'); // No access
+                    $query->whereRaw('1 = 0');
                 }
-            } elseif ($user->role === 'superadmin') {
-                // Superadmin can see all users
-                // No filter needed
             }
 
             if ($search) {
@@ -1151,10 +1202,68 @@ class AdminController extends Controller
             ], 500);
         }
     }
+    
+    public function getCRSDUsers(Request $request, $crsdType)
+    {
+        try {
+            $user = auth()->guard('api')->user();
 
-    /**
-     * Show user detail with access control
-     */
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tipe CRSD tidak valid'
+                ], 400);
+            }
+            
+            if ($user->role === 'admin') {
+                $dataAccess = $this->getUserDataAccess();
+                if (!in_array($crsdType, $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
+                    ], 403);
+                }
+            }
+            
+            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+            
+            $query = User::where('role', 'user')
+                ->where('divisi', $divisiName);
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('name', 'like', "%{$search}%")
+                      ->orWhere('email', 'like', "%{$search}%")
+                      ->orWhere('phone', 'like', "%{$search}%");
+                });
+            }
+            
+            $users = $query->paginate($request->get('per_page', 15));
+            
+            return response()->json([
+                'success' => true,
+                'message' => "Users retrieved successfully for " . strtoupper($crsdType),
+                'crsd_type' => $crsdType,
+                'data' => $users
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error("Get CRSD users error: " . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil data users',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
     public function showUser($id)
     {
         try {
@@ -1169,7 +1278,6 @@ class AdminController extends Controller
 
             $authUser = auth()->guard('api')->user();
             
-            // Admin can only see regular users
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
                     'success' => false,
@@ -1177,7 +1285,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check CRSD access for admin
             if ($authUser->role === 'admin' && $user->role === 'user') {
                 $dataAccess = $this->getUserDataAccess();
                 $userDivisi = $user->divisi;
@@ -1211,10 +1318,7 @@ class AdminController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Update user with access control
-     */
+    
     public function updateUser(Request $request, $id)
     {
         try {
@@ -1229,7 +1333,6 @@ class AdminController extends Controller
 
             $authUser = auth()->guard('api')->user();
             
-            // Admin can only update regular users
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
                     'success' => false,
@@ -1237,7 +1340,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check CRSD access for admin
             if ($authUser->role === 'admin' && $user->role === 'user') {
                 $dataAccess = $this->getUserDataAccess();
                 $userDivisi = $user->divisi;
@@ -1256,7 +1358,6 @@ class AdminController extends Controller
                     ], 403);
                 }
                 
-                // Admin cannot change divisi to something they don't have access to
                 if ($request->has('divisi')) {
                     $newDivisi = $request->divisi;
                     if ($newDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
@@ -1322,10 +1423,7 @@ class AdminController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Delete user with access control
-     */
+    
     public function deleteUser($id)
     {
         try {
@@ -1340,7 +1438,6 @@ class AdminController extends Controller
 
             $authUser = auth()->guard('api')->user();
             
-            // Admin can only delete regular users
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
                     'success' => false,
@@ -1348,7 +1445,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check CRSD access for admin
             if ($authUser->role === 'admin' && $user->role === 'user') {
                 $dataAccess = $this->getUserDataAccess();
                 $userDivisi = $user->divisi;
@@ -1383,10 +1479,7 @@ class AdminController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Deactivate user with access control
-     */
+    
     public function deactivateUser($id)
     {
         try {
@@ -1401,7 +1494,6 @@ class AdminController extends Controller
 
             $authUser = auth()->guard('api')->user();
             
-            // Admin can only deactivate regular users
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
                     'success' => false,
@@ -1409,7 +1501,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check CRSD access for admin
             if ($authUser->role === 'admin' && $user->role === 'user') {
                 $dataAccess = $this->getUserDataAccess();
                 $userDivisi = $user->divisi;
@@ -1445,10 +1536,7 @@ class AdminController extends Controller
             ], 500);
         }
     }
-
-    /**
-     * Activate user with access control
-     */
+    
     public function activateUser($id)
     {
         try {
@@ -1463,7 +1551,6 @@ class AdminController extends Controller
 
             $authUser = auth()->guard('api')->user();
             
-            // Admin can only activate regular users
             if ($authUser->role === 'admin' && $user->role !== 'user') {
                 return response()->json([
                     'success' => false,
@@ -1471,7 +1558,6 @@ class AdminController extends Controller
                 ], 403);
             }
             
-            // Check CRSD access for admin
             if ($authUser->role === 'admin' && $user->role === 'user') {
                 $dataAccess = $this->getUserDataAccess();
                 $userDivisi = $user->divisi;
@@ -1508,14 +1594,8 @@ class AdminController extends Controller
         }
     }
 
-    /**
-     * ==================== CRSD USER METHODS ====================
-     */
-    
-    /**
-     * Get CRSD Users
-     */
-    public function getCRSDUsers(Request $request, $crsdType)
+    // New method for actual file export/download
+    public function exportExcel(Request $request)
     {
         try {
             $user = auth()->guard('api')->user();
@@ -1526,107 +1606,98 @@ class AdminController extends Controller
                     'message' => 'Anda tidak memiliki akses'
                 ], 403);
             }
-            
-            // Validate CRSD type
-            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tipe CRSD tidak valid'
-                ], 400);
-            }
-            
-            // Check if admin has access to this CRSD
-            if ($user->role === 'admin') {
-                $dataAccess = $this->getUserDataAccess();
-                if (!in_array($crsdType, $dataAccess)) {
+
+            $startDateInput = $request->get('start_date', now()->subMonth()->toDateString());
+            $endDateInput = $request->get('end_date', now()->toDateString());
+
+            try {
+                $startDate = Carbon::parse($startDateInput)->startOfDay();
+                $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+                if ($startDate > $endDate) {
                     return response()->json([
                         'success' => false,
-                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
-                    ], 403);
+                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                    ], 400);
                 }
-            }
-            
-            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
-            
-            $query = User::where('role', 'user')
-                ->where('divisi', $divisiName);
-            
-            if ($request->has('search')) {
-                $search = $request->search;
-                $query->where(function($q) use ($search) {
-                    $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%")
-                      ->orWhere('phone', 'like', "%{$search}%");
-                });
-            }
-            
-            $users = $query->paginate($request->get('per_page', 15));
-            
-            return response()->json([
-                'success' => true,
-                'message' => "Users retrieved successfully for " . strtoupper($crsdType),
-                'crsd_type' => $crsdType,
-                'data' => $users
-            ], 200);
-        } catch (\Exception $e) {
-            Log::error("Get CRSD users error: " . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal mengambil data users',
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-    
-    /**
-     * Select Module for admin with multiple access
-     */
-    public function selectModule()
-    {
-        try {
-            $user = auth()->guard('api')->user();
-
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
+            } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                    'message' => 'Format tanggal tidak valid'
+                ], 400);
             }
+
+            $query = Orders::with(['user', 'items.menu'])
+                ->whereBetween('created_at', [$startDate, $endDate])
+                ->orderBy('created_at', 'desc');
             
-            $dataAccess = $this->getUserDataAccess();
-            $crsdTypes = array_filter($dataAccess, function($item) {
-                return in_array($item, ['crsd1', 'crsd2']);
-            });
+            $this->applyCRSDFilter($query);
             
-            if (count($crsdTypes) === 1) {
-                $module = reset($crsdTypes);
+            $orders = $query->get();
+
+            if ($orders->isEmpty()) {
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Redirecting to ' . strtoupper($module) . ' dashboard',
-                    'redirect_to' => "/admin/{$module}/dashboard",
-                    'requires_selection' => false
-                ], 200);
+                    'success' => false,
+                    'message' => 'Tidak ada data untuk diekspor'
+                ], 404);
             }
+
+            // Format CSV content
+            $csvData = [];
             
-            if (count($crsdTypes) > 1) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Silakan pilih module CRSD',
-                    'requires_selection' => true,
-                    'available_modules' => array_values($crsdTypes)
-                ], 200);
+            // Header
+            $csvData[] = [
+                'Order ID',
+                'Order Code',
+                'Customer Name',
+                'Customer Email',
+                'Customer Divisi',
+                'Order Status',
+                'Payment Status',
+                'Total Amount',
+                'Order Date',
+                'Items Count',
+                'Items'
+            ];
+            
+            // Data rows
+            foreach ($orders as $order) {
+                $csvData[] = [
+                    $order->id,
+                    $order->order_code,
+                    $order->user->name ?? 'Unknown',
+                    $order->user->email ?? 'Unknown',
+                    $order->user->divisi ?? 'Unknown',
+                    $order->order_status,
+                    $order->status,
+                    (int) $order->total_price,
+                    $order->created_at->format('Y-m-d H:i:s'),
+                    $order->items->count(),
+                    $order->items->map(function($item) {
+                        return $item->menu?->name ?? 'Unknown Product';
+                    })->implode(', ')
+                ];
             }
-            
-            return response()->json([
-                'success' => false,
-                'message' => 'Tidak ada module CRSD yang tersedia'
-            ], 400);
+
+            // Convert to CSV string
+            $csvContent = '';
+            foreach ($csvData as $row) {
+                $csvContent .= implode(',', array_map(function($value) {
+                    return '"' . str_replace('"', '""', $value) . '"';
+                }, $row)) . "\n";
+            }
+
+            $filename = 'orders_export_' . $startDate->format('Ymd') . '_to_' . $endDate->format('Ymd') . '.csv';
+
+            return response($csvContent)
+                ->header('Content-Type', 'text/csv; charset=utf-8')
+                ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+
         } catch (\Exception $e) {
-            Log::error('Select module error: ' . $e->getMessage());
+            Log::error('Export Excel error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal memuat pilihan module',
-                'error' => $e->getMessage()
+                'message' => 'Gagal export ke Excel: ' . $e->getMessage()
             ], 500);
         }
     }

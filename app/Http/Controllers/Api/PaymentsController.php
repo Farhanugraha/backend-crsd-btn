@@ -5,14 +5,64 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Orders;
 use App\Models\Payments;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Log; 
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Auth;
 
 class PaymentsController extends Controller
 {
+    /**
+     * Helper method untuk apply CRSD filter
+     */
+    private function applyCRSDFilter($query)
+    {
+        $user = Auth::guard('api')->user();
+        
+        if (!$user) {
+            return $query;
+        }
+        
+        // Superadmin bisa lihat semua
+        if ($user->role === 'superadmin') {
+            return $query;
+        }
+        
+        // Admin users - filter berdasarkan data access
+        if ($user->role === 'admin') {
+            $dataAccess = $user->getEffectiveDataAccess();
+            
+            if (empty($dataAccess)) {
+                // No data access - return empty results
+                return $query->whereRaw('1 = 0');
+            }
+            
+            // Filter berdasarkan available data access
+            $crsdAccess = array_filter($dataAccess, function($item) {
+                return in_array($item, ['crsd1', 'crsd2']);
+            });
+            
+            if (count($crsdAccess) === 2) {
+                // Admin dengan kedua akses bisa lihat CRSD 1 dan CRSD 2
+                return $query->whereHas('order.user', function($q) {
+                    $q->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
+                });
+            } elseif (count($crsdAccess) === 1) {
+                $crsdType = reset($crsdAccess);
+                $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+                
+                return $query->whereHas('order.user', function($q) use ($divisiName) {
+                    $q->where('divisi', $divisiName);
+                });
+            }
+        }
+        
+        return $query;
+    }
+    
     /**
      * Upload payment proof (bukti pembayaran)
      * FLOW: User upload bukti → Payment record dibuat → Order status = paid
@@ -233,17 +283,47 @@ class PaymentsController extends Controller
     }
 
     /**
-     * Get all payments (admin only)
+     * Get all payments with CRSD filtering (admin only)
      */
     public function getAllPayments(Request $request)
     {
         try {
+            $user = Auth::guard('api')->user();
+            
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
             $query = Payments::with(['order' => function($q) {
                 $q->with('user', 'items.menu');
             }]);
 
+            // Apply CRSD filter
+            $this->applyCRSDFilter($query);
+
             if ($request->get('status')) {
                 $query->where('payment_status', $request->get('status'));
+            }
+            
+            if ($request->has('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('payment_code', 'like', "%{$search}%")
+                      ->orWhereHas('order', function($q2) use ($search) {
+                          $q2->where('order_code', 'like', "%{$search}%")
+                             ->orWhereHas('user', function($q3) use ($search) {
+                                 $q3->where('name', 'like', "%{$search}%")
+                                    ->orWhere('email', 'like', "%{$search}%");
+                             });
+                      });
+                });
             }
 
             $payments = $query->latest()->paginate($request->get('per_page', 15));
@@ -254,6 +334,245 @@ class PaymentsController extends Controller
                 'data' => $payments
             ], 200);
         } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    /**
+     * Get CRSD payments (admin only)
+     */
+    public function getCRSDPayments(Request $request, $crsdType)
+    {
+        try {
+            $user = Auth::guard('api')->user();
+            
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            // Validate CRSD type
+            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tipe CRSD tidak valid'
+                ], 400);
+            }
+            
+            // Check access for admin
+            if ($user->role === 'admin') {
+                $dataAccess = $user->getEffectiveDataAccess();
+                if (!in_array($crsdType, $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
+                    ], 403);
+                }
+            }
+            
+            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+            
+            $query = Payments::with(['order' => function($q) {
+                $q->with('user', 'items.menu');
+            }])
+            ->whereHas('order.user', function($q) use ($divisiName) {
+                $q->where('divisi', $divisiName);
+            });
+
+            if ($request->get('status')) {
+                $query->where('payment_status', $request->get('status'));
+            }
+            
+            if ($request->has('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('payment_code', 'like', "%{$search}%")
+                      ->orWhereHas('order', function($q2) use ($search) {
+                          $q2->where('order_code', 'like', "%{$search}%")
+                             ->orWhereHas('user', function($q3) use ($search) {
+                                 $q3->where('name', 'like', "%{$search}%")
+                                    ->orWhere('email', 'like', "%{$search}%");
+                             });
+                      });
+                });
+            }
+
+            $payments = $query->latest()->paginate($request->get('per_page', 15));
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Payments retrieved successfully for ' . strtoupper($crsdType),
+                'crsd_type' => $crsdType,
+                'data' => $payments
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Get CRSD payments error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    /**
+     * Get payments by status with CRSD filtering
+     */
+    public function getPaymentsByStatus(Request $request, $status)
+    {
+        try {
+            $user = Auth::guard('api')->user();
+            
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            $validStatuses = ['pending', 'completed', 'rejected', 'failed', 'expired'];
+            if (!in_array($status, $validStatuses)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Status pembayaran tidak valid'
+                ], 400);
+            }
+            
+            $query = Payments::with(['order' => function($q) {
+                $q->with('user', 'items.menu');
+            }])
+            ->where('payment_status', $status);
+            
+            // Apply CRSD filter
+            $this->applyCRSDFilter($query);
+            
+            if ($request->has('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('payment_code', 'like', "%{$search}%")
+                      ->orWhereHas('order', function($q2) use ($search) {
+                          $q2->where('order_code', 'like', "%{$search}%")
+                             ->orWhereHas('user', function($q3) use ($search) {
+                                 $q3->where('name', 'like', "%{$search}%")
+                                    ->orWhere('email', 'like', "%{$search}%");
+                             });
+                      });
+                });
+            }
+            
+            $payments = $query->latest()->paginate($request->get('per_page', 15));
+            
+            return response()->json([
+                'success' => true,
+                'message' => ucfirst($status) . ' payments retrieved successfully',
+                'status' => $status,
+                'data' => $payments
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Get payments by status error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+    /**
+     * Get CRSD payments by status
+     */
+    public function getCRSDPaymentsByStatus(Request $request, $crsdType, $status)
+    {
+        try {
+            $user = Auth::guard('api')->user();
+            
+            if (!in_array($user->role, ['admin', 'superadmin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Anda tidak memiliki akses'
+                ], 403);
+            }
+            
+            // Validate CRSD type
+            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tipe CRSD tidak valid'
+                ], 400);
+            }
+            
+            $validStatuses = ['pending', 'completed', 'rejected', 'failed', 'expired'];
+            if (!in_array($status, $validStatuses)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Status pembayaran tidak valid'
+                ], 400);
+            }
+            
+            // Check access for admin
+            if ($user->role === 'admin') {
+                $dataAccess = $user->getEffectiveDataAccess();
+                if (!in_array($crsdType, $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
+                    ], 403);
+                }
+            }
+            
+            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+            
+            $query = Payments::with(['order' => function($q) {
+                $q->with('user', 'items.menu');
+            }])
+            ->where('payment_status', $status)
+            ->whereHas('order.user', function($q) use ($divisiName) {
+                $q->where('divisi', $divisiName);
+            });
+            
+            if ($request->has('date')) {
+                $query->whereDate('created_at', $request->date);
+            }
+            
+            if ($request->has('search')) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('payment_code', 'like', "%{$search}%")
+                      ->orWhereHas('order', function($q2) use ($search) {
+                          $q2->where('order_code', 'like', "%{$search}%")
+                             ->orWhereHas('user', function($q3) use ($search) {
+                                 $q3->where('name', 'like', "%{$search}%")
+                                    ->orWhere('email', 'like', "%{$search}%");
+                             });
+                      });
+                });
+            }
+            
+            $payments = $query->latest()->paginate($request->get('per_page', 15));
+            
+            return response()->json([
+                'success' => true,
+                'message' => ucfirst($status) . ' payments retrieved successfully for ' . strtoupper($crsdType),
+                'crsd_type' => $crsdType,
+                'status' => $status,
+                'data' => $payments
+            ], 200);
+        } catch (\Exception $e) {
+            Log::error('Get CRSD payments by status error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve payments',
@@ -278,6 +597,27 @@ class PaymentsController extends Controller
                     'success' => false,
                     'message' => 'Payment not found for this order'
                 ], 404);
+            }
+            
+            // Check CRSD access for admin
+            $user = Auth::guard('api')->user();
+            if ($user->role === 'admin') {
+                $dataAccess = $user->getEffectiveDataAccess();
+                $userDivisi = $payment->order->user->divisi ?? null;
+                
+                if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
+                
+                if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
             }
 
             return response()->json([
@@ -314,6 +654,27 @@ class PaymentsController extends Controller
                     'message' => 'Payment not found'
                 ], 404);
             }
+            
+            // Check CRSD access for admin
+            $user = Auth::guard('api')->user();
+            if ($user->role === 'admin') {
+                $dataAccess = $user->getEffectiveDataAccess();
+                $userDivisi = $payment->order->user->divisi ?? null;
+                
+                if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
+                
+                if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
+            }
 
             return response()->json([
                 'success' => true,
@@ -347,6 +708,27 @@ class PaymentsController extends Controller
                     'success' => false,
                     'message' => 'Payment not found'
                 ], 404);
+            }
+            
+            // Check CRSD access for admin
+            $user = Auth::guard('api')->user();
+            if ($user->role === 'admin') {
+                $dataAccess = $user->getEffectiveDataAccess();
+                $userDivisi = $payment->order->user->divisi ?? null;
+                
+                if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
+                
+                if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
             }
 
             // Set status berdasarkan action
@@ -393,6 +775,27 @@ class PaymentsController extends Controller
                     'success' => false,
                     'message' => 'Payment not found'
                 ], 404);
+            }
+            
+            // Check CRSD access for admin
+            $user = Auth::guard('api')->user();
+            if ($user->role === 'admin') {
+                $dataAccess = $user->getEffectiveDataAccess();
+                $userDivisi = $payment->order->user->divisi ?? null;
+                
+                if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
+                
+                if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Anda tidak memiliki akses ke pembayaran ini'
+                    ], 403);
+                }
             }
 
             // Set status to rejected
