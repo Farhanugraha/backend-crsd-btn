@@ -3,6 +3,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class RoleMiddleware
 {
@@ -11,8 +12,7 @@ class RoleMiddleware
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  \Closure  $next
-     * @param  string|array  $roles
-     * @param  string|null  $permission  // Optional: untuk permission tambahan
+     * @param  mixed  ...$params
      * @return mixed
      */
     public function handle(Request $request, Closure $next, ...$params)
@@ -28,8 +28,19 @@ class RoleMiddleware
         // Parse parameters
         $roles = $this->parseRoles($params);
         $permission = $this->parsePermission($params);
+        $dataAccessType = $this->parseDataAccessType($params);
         
-        // Check superadmin bypass (optional config)
+        // Log untuk debugging
+        Log::info('RoleMiddleware check', [
+            'user_id' => $user->id,
+            'user_role' => $userRole,
+            'required_roles' => $roles,
+            'permission' => $permission,
+            'data_access_type' => $dataAccessType,
+            'path' => $request->path()
+        ]);
+        
+        // Check superadmin bypass
         if ($this->allowSuperadminBypass() && $userRole === 'superadmin') {
             return $next($request);
         }
@@ -44,11 +55,18 @@ class RoleMiddleware
             return $this->forbiddenPermissionResponse($user, $permission);
         }
         
-        // Check data access for admin users (CRSD1, CRSD2, etc.)
-        if ($userRole === 'admin' && $request->route()) {
-            $dataType = $this->getDataTypeFromRoute($request);
-            if ($dataType && !$this->checkDataAccess($user, $dataType)) {
-                return $this->forbiddenDataAccessResponse($user, $dataType);
+        // Check CRSD data access for admin users
+        if ($userRole === 'admin' && $dataAccessType) {
+            if (!$this->checkDataAccess($user, $dataAccessType)) {
+                return $this->forbiddenDataAccessResponse($user, $dataAccessType);
+            }
+        }
+        
+        // Check CRSD data access from route if no explicit type in params
+        if ($userRole === 'admin' && !$dataAccessType) {
+            $dataTypeFromRoute = $this->getDataTypeFromRoute($request);
+            if ($dataTypeFromRoute && !$this->checkDataAccess($user, $dataTypeFromRoute)) {
+                return $this->forbiddenDataAccessResponse($user, $dataTypeFromRoute);
             }
         }
         
@@ -68,6 +86,11 @@ class RoleMiddleware
                 $roleString = str_replace('role:', '', $param);
                 $roles = array_merge($roles, explode('|', $roleString));
             } 
+            // Check for data access type
+            elseif (strpos($param, 'data_access:') === 0) {
+                // Skip, handled separately
+                continue;
+            }
             // If parameter is just role without prefix
             elseif (in_array($param, ['superadmin', 'admin', 'user', 'guest'])) {
                 $roles[] = $param;
@@ -97,12 +120,25 @@ class RoleMiddleware
     }
     
     /**
+     * Parse data access type from parameters
+     */
+    private function parseDataAccessType($params)
+    {
+        foreach ($params as $param) {
+            if (strpos($param, 'data_access:') === 0) {
+                return str_replace('data_access:', '', $param);
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
      * Check if superadmin can bypass all checks
      */
     private function allowSuperadminBypass()
     {
-        // Configurable - bisa dari config atau env
-        return config('app.superadmin_bypass', false); // default false untuk keamanan
+        return config('app.superadmin_bypass', false);
     }
     
     /**
@@ -135,8 +171,8 @@ class RoleMiddleware
         
         $dataAccess = json_decode($user->data_access, true) ?? [];
         
-        // Check if admin has 'all' access or specific access
-        return in_array('all', $dataAccess) || in_array($dataType, $dataAccess);
+        // Check if user has access to specific data type
+        return in_array($dataType, $dataAccess);
     }
     
     /**
@@ -144,23 +180,27 @@ class RoleMiddleware
      */
     private function getDataTypeFromRoute(Request $request)
     {
-        $route = $request->route();
-    
-        if ($route && $route->hasParameter('dataType')) {
-            return $route->parameter('dataType');
+        $path = $request->path();
+        
+        // Check for CRSD patterns in path
+        if (preg_match('/api\/crsd\/(crsd[0-9]+)/', $path, $matches)) {
+            return $matches[1];
         }
         
-        //search route name (example: 'crsd1.index' -> 'crsd1')
-        $routeName = $route->getName();
-        if ($routeName) {
-            $parts = explode('.', $routeName);
-            if (in_array($parts[0], ['crsd1', 'crsd2', 'crsd3', 'crsd4'])) {
-                return $parts[0];
-            }
-        }
-        $path = $request->path();
-        if (preg_match('/\/(crsd1|crsd2|crsd3|crsd4)/', $path, $matches)) {
+        if (preg_match('/admin\/(crsd[0-9]+)/', $path, $matches)) {
             return $matches[1];
+        }
+        
+        // Check route name
+        $route = $request->route();
+        if ($route) {
+            $routeName = $route->getName();
+            if ($routeName) {
+                $parts = explode('.', $routeName);
+                if (in_array($parts[0], ['crsd1', 'crsd2', 'crsd3', 'crsd4'])) {
+                    return $parts[0];
+                }
+            }
         }
         
         return null;
@@ -212,7 +252,8 @@ class RoleMiddleware
             'required_data_access' => $dataType,
             'user_data_access' => $dataAccess,
             'user_id' => $user->id,
-            'user_email' => $user->email
+            'user_email' => $user->email,
+            'timestamp' => now()->toISOString()
         ], 403);
     }
 }

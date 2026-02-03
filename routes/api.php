@@ -314,14 +314,58 @@ Route::prefix('payments')
 Route::middleware(['auth:api', 'role:admin,superadmin'])
     ->prefix('admin')
     ->group(function () {
-        // Dashboard
+        
+        // ==================== DASHBOARD & STATISTICS ====================
         Route::get('dashboard', [AdminController::class, 'dashboard'])
             ->name('admin.dashboard');
         
-        // Statistics & Reports
+        // Module selection for admin with multiple CRSD access
+        Route::get('select-module', [AdminController::class, 'selectModule'])
+            ->name('admin.selectModule');
+        
+        // CRSD 1 Dashboard
+        Route::get('crsd1/dashboard', [AdminController::class, 'dashboardCRSD1'])
+            ->name('admin.crsd1.dashboard');
+        
+        // CRSD 2 Dashboard
+        Route::get('crsd2/dashboard', [AdminController::class, 'dashboardCRSD2'])
+            ->name('admin.crsd2.dashboard');
+        
+        // Statistics
         Route::get('statistics', [AdminController::class, 'getStatistics'])
             ->name('admin.statistics');
         
+        // ==================== CRSD ORDERS ====================
+        // All orders (with CRSD filtering)
+        Route::get('orders', [AdminController::class, 'getAllOrders'])
+            ->name('admin.orders.index');
+        
+        // CRSD 1 Orders
+        Route::get('crsd1/orders', function(Request $request) {
+            return app(AdminController::class)->getCRSDOrders($request, 'crsd1');
+        })->name('admin.crsd1.orders');
+        
+        // CRSD 2 Orders
+        Route::get('crsd2/orders', function(Request $request) {
+            return app(AdminController::class)->getCRSDOrders($request, 'crsd2');
+        })->name('admin.crsd2.orders');
+        
+        // ==================== CRSD USERS ====================
+        // CRSD 1 Users
+        Route::get('crsd1/users', function(Request $request) {
+            return app(AdminController::class)->getCRSDUsers($request, 'crsd1');
+        })->name('admin.crsd1.users');
+        
+        // CRSD 2 Users
+        Route::get('crsd2/users', function(Request $request) {
+            return app(AdminController::class)->getCRSDUsers($request, 'crsd2');
+        })->name('admin.crsd2.users');
+        
+        // List all users (with CRSD filtering)
+        Route::get('users', [AdminController::class, 'listUsers'])
+            ->name('admin.users.index');
+        
+        // ==================== REPORTS & EXPORT ====================
         Route::get('reports', [AdminController::class, 'getReports'])
             ->name('admin.reports');
         
@@ -331,11 +375,31 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
         Route::post('export-reports', [AdminController::class, 'exportReports'])
             ->name('admin.exportReports');
         
-        // Orders Management
-        Route::prefix('orders')->group(function () {
-            Route::get('', [OrdersController::class, 'getAllOrders'])
-                ->name('admin.orders.index');
+        // ==================== USER MANAGEMENT ====================
+        Route::prefix('users')->group(function () {
+            Route::get('{id}', [AdminController::class, 'showUser'])
+                ->whereNumber('id')
+                ->name('admin.users.show');
             
+            Route::put('{id}', [AdminController::class, 'updateUser'])
+                ->whereNumber('id')
+                ->name('admin.users.update');
+            
+            Route::delete('{id}', [AdminController::class, 'deleteUser'])
+                ->whereNumber('id')
+                ->name('admin.users.delete');
+            
+            Route::post('{id}/activate', [AdminController::class, 'activateUser'])
+                ->whereNumber('id')
+                ->name('admin.users.activate');
+            
+            Route::post('{id}/deactivate', [AdminController::class, 'deactivateUser'])
+                ->whereNumber('id')
+                ->name('admin.users.deactivate');
+        });
+        
+        // ==================== ORDERS MANAGEMENT ====================
+        Route::prefix('orders')->group(function () {
             Route::post('batch-update-status', [OrdersController::class, 'batchUpdateStatus'])
                 ->name('admin.orders.batchUpdate');
             
@@ -363,7 +427,7 @@ Route::middleware(['auth:api', 'role:admin,superadmin'])
                 ->name('admin.orders.checkedItemsCount');
         });
         
-        // Payments Management
+        // ==================== PAYMENTS MANAGEMENT ====================
         Route::prefix('payments')->group(function () {
             Route::get('', [PaymentsController::class, 'getAllPayments'])
                 ->name('admin.payments.index');
@@ -635,72 +699,61 @@ Route::middleware(['auth:api', 'role:superadmin'])
 
 /*
 |--------------------------------------------------------------------------
-| CRSD DATA ACCESS ROUTES - ADMIN WITH DATA ACCESS ONLY
+| DEBUG ROUTES (Temporary)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:api', 'check.data.access'])
-    ->prefix('crsd')
-    ->name('crsd.')
-    ->group(function () {
+Route::middleware(['auth:api'])->get('/debug/test-orders', function() {
+    try {
+        $user = auth()->user();
         
-        // CRSD 1 Routes
-        Route::prefix('crsd1')
-            ->middleware(['role:admin'])
-            ->name('crsd1.')
-            ->group(function () {
-                Route::get('dashboard', function() {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'CRSD 1 Dashboard',
-                        'data' => [
-                            'description' => 'Customer Relationship System Data 1',
-                            'access_type' => 'crsd1',
-                            'timestamp' => now()->toIso8601String()
-                        ]
-                    ]);
-                })->name('dashboard');
-                
-                Route::get('reports', function() {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'CRSD 1 Reports',
-                        'data' => [
-                            'reports' => [],
-                            'timestamp' => now()->toIso8601String()
-                        ]
-                    ]);
-                })->name('reports');
+        // Test database connection
+        $ordersCount = \App\Models\Orders::count();
+        $usersCount = \App\Models\User::count();
+        
+        // Get some sample orders
+        $sampleOrders = \App\Models\Orders::with('user')
+            ->limit(5)
+            ->get()
+            ->map(function($order) {
+                return [
+                    'id' => $order->id,
+                    'order_code' => $order->order_code,
+                    'user_id' => $order->user_id,
+                    'user_name' => $order->user->name ?? 'N/A',
+                    'user_divisi' => $order->user->divisi ?? 'N/A',
+                    'status' => $order->status,
+                    'order_status' => $order->order_status,
+                    'total_price' => $order->total_price,
+                ];
             });
         
-        // CRSD 2 Routes
-        Route::prefix('crsd2')
-            ->middleware(['role:admin'])
-            ->name('crsd2.')
-            ->group(function () {
-                Route::get('dashboard', function() {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'CRSD 2 Dashboard',
-                        'data' => [
-                            'description' => 'Customer Relationship System Data 2',
-                            'access_type' => 'crsd2',
-                            'timestamp' => now()->toIso8601String()
-                        ]
-                    ]);
-                })->name('dashboard');
-                
-                Route::get('reports', function() {
-                    return response()->json([
-                        'success' => true,
-                        'message' => 'CRSD 2 Reports',
-                        'data' => [
-                            'reports' => [],
-                            'timestamp' => now()->toIso8601String()
-                        ]
-                    ]);
-                })->name('reports');
-            });
-    });
+        return response()->json([
+            'success' => true,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'divisi' => $user->divisi,
+                'metadata' => $user->metadata,
+            ],
+            'database' => [
+                'orders_count' => $ordersCount,
+                'users_count' => $usersCount,
+            ],
+            'sample_orders' => $sampleOrders,
+            'can_access_admin' => in_array($user->role, ['admin', 'superadmin']),
+            'model_class' => class_exists('\App\Models\Order') ? 'Order model exists' : 'Order model NOT found',
+        ]);
+        
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
+});
 
 /*
 |--------------------------------------------------------------------------
