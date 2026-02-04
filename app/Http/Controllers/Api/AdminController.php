@@ -397,145 +397,189 @@ class AdminController extends Controller
             ], 500);
         }
     }
-    
-    public function getStatistics(Request $request)
-    {
-        try {
-            $user = auth()->guard('api')->user();
+        public function getStatistics(Request $request)
+{
+    try {
+        $user = auth()->guard('api')->user();
 
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-
-            $startDateInput = $request->get('start_date');
-            $endDateInput = $request->get('end_date');
-
-            if (!$startDateInput || !$endDateInput) {
-                $endDateInput = now()->toDateString();
-                $startDateInput = now()->toDateString();
-            }
-
-            try {
-                $startDate = Carbon::parse($startDateInput)->startOfDay();
-                $endDate = Carbon::parse($endDateInput)->endOfDay();
-
-                if ($startDate > $endDate) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
-                    ], 400);
-                }
-            } catch (\Exception $e) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Format tanggal tidak valid'
-                ], 400);
-            }
-
-            $baseQuery = Orders::whereBetween('created_at', [$startDate, $endDate]);
-            $this->applyCRSDFilter($baseQuery);
-            
-            $totalOrders = $baseQuery->count();
-            
-            $revenueQuery = Orders::where('status', 'paid')
-                ->whereBetween('created_at', [$startDate, $endDate]);
-            $this->applyCRSDFilter($revenueQuery);
-            $totalRevenue = (int) $revenueQuery->sum('total_price');
-            
-            $completedOrders = $baseQuery->clone()->where('order_status', 'completed')->count();
-            $processingOrders = $baseQuery->clone()->where('order_status', 'processing')->count();
-            $canceledOrders = $baseQuery->clone()->where('order_status', 'canceled')->count();
-            
-            $averageOrderValue = $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0;
-            
-            $todayStart = now()->startOfDay();
-            $todayEnd = now()->endOfDay();
-            
-            $todayOrdersQuery = Orders::whereBetween('created_at', [$todayStart, $todayEnd]);
-            $this->applyCRSDFilter($todayOrdersQuery);
-            $todayOrders = $todayOrdersQuery->count();
-            
-            $todayRevenueQuery = Orders::where('status', 'paid')
-                ->whereBetween('created_at', [$todayStart, $todayEnd]);
-            $this->applyCRSDFilter($todayRevenueQuery);
-            $todayRevenue = (int) $todayRevenueQuery->sum('total_price');
-            
-            $periodDays = $endDate->diffInDays($startDate) + 1;
-            $previousPeriodStart = (clone $startDate)->subDays($periodDays)->startOfDay();
-            $previousPeriodEnd = (clone $startDate)->subDay()->endOfDay();
-            
-            $previousRevenueQuery = Orders::where('status', 'paid')
-                ->whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd]);
-            $this->applyCRSDFilter($previousRevenueQuery);
-            $previousPeriodRevenue = (int) $previousRevenueQuery->sum('total_price');
-                
-            $previousOrdersQuery = Orders::whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd]);
-            $this->applyCRSDFilter($previousOrdersQuery);
-            $previousPeriodOrders = $previousOrdersQuery->count();
-            
-            $revenueGrowth = $previousPeriodRevenue > 0 
-                ? (($totalRevenue - $previousPeriodRevenue) / $previousPeriodRevenue * 100)
-                : ($totalRevenue > 0 ? 100 : 0);
-            
-            $orderGrowth = $previousPeriodOrders > 0
-                ? (($totalOrders - $previousPeriodOrders) / $previousPeriodOrders * 100)
-                : ($totalOrders > 0 ? 100 : 0);
-
-            $chartData = [];
-            $currentDate = clone $startDate;
-            
-            while ($currentDate <= $endDate) {
-                $dayStart = (clone $currentDate)->startOfDay();
-                $dayEnd = (clone $currentDate)->endOfDay();
-                
-                $dayOrdersQuery = Orders::whereBetween('created_at', [$dayStart, $dayEnd]);
-                $this->applyCRSDFilter($dayOrdersQuery);
-                $dayOrders = $dayOrdersQuery->count();
-                    
-                $dayRevenueQuery = Orders::where('status', 'paid')
-                    ->whereBetween('created_at', [$dayStart, $dayEnd]);
-                $this->applyCRSDFilter($dayRevenueQuery);
-                $dayRevenue = (int) $dayRevenueQuery->sum('total_price');
-                
-                $chartData[] = [
-                    'date' => $currentDate->format('d M'),
-                    'orders' => $dayOrders,
-                    'revenue' => $dayRevenue
-                ];
-                
-                $currentDate->addDay();
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Statistik berhasil dimuat',
-                'data' => [
-                    'totalOrders' => $totalOrders,
-                    'totalRevenue' => $totalRevenue,
-                    'completedOrders' => $completedOrders,
-                    'processingOrders' => $processingOrders,
-                    'canceledOrders' => $canceledOrders,
-                    'averageOrderValue' => $averageOrderValue,
-                    'todayOrders' => $todayOrders,
-                    'todayRevenue' => $todayRevenue,
-                    'revenueGrowth' => round($revenueGrowth, 2),
-                    'orderGrowth' => round($orderGrowth, 2),
-                    'chartData' => $chartData,
-                ]
-            ], 200);
-
-        } catch (\Exception $e) {
-            Log::error('Statistics error: ' . $e->getMessage());
+        if (!in_array($user->role, ['admin', 'superadmin'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil statistik: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Anda tidak memiliki akses'
+            ], 403);
         }
-    }
 
+        $startDateInput = $request->get('start_date');
+        $endDateInput = $request->get('end_date');
+
+        if (!$startDateInput || !$endDateInput) {
+            $endDateInput = now()->toDateString();
+            $startDateInput = now()->toDateString();
+        }
+
+        try {
+            $startDate = Carbon::parse($startDateInput)->startOfDay();
+            $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+            if ($startDate > $endDate) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                ], 400);
+            }
+            
+            // Validasi maksimum range tanggal (maksimal 365 hari)
+            if ($endDate->diffInDays($startDate) > 365) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Rentang tanggal maksimum adalah 365 hari'
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Format tanggal tidak valid'
+            ], 400);
+        }
+
+        // OPTIMISASI: Gunakan query aggregate untuk semua statistik sekaligus
+        $mainStats = Orders::selectRaw('
+                COUNT(*) as total_orders,
+                SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as total_revenue,
+                SUM(CASE WHEN order_status = "completed" THEN 1 ELSE 0 END) as completed_orders,
+                SUM(CASE WHEN order_status = "processing" THEN 1 ELSE 0 END) as processing_orders,
+                SUM(CASE WHEN order_status = "canceled" THEN 1 ELSE 0 END) as canceled_orders,
+                SUM(CASE WHEN status = "paid" THEN 1 ELSE 0 END) as paid_orders
+            ')
+            ->whereBetween('created_at', [$startDate, $endDate]);
+        
+        $this->applyCRSDFilter($mainStats);
+        $mainStatsResult = $mainStats->first();
+        
+        $totalOrders = (int) $mainStatsResult->total_orders;
+        $totalRevenue = (int) $mainStatsResult->total_revenue;
+        $completedOrders = (int) $mainStatsResult->completed_orders;
+        $processingOrders = (int) $mainStatsResult->processing_orders;
+        $canceledOrders = (int) $mainStatsResult->canceled_orders;
+        $paidOrders = (int) $mainStatsResult->paid_orders;
+        
+        // PERBAIKAN: Average order value menggunakan totalOrders bukan paidOrders (sesuai kode lama)
+        $averageOrderValue = $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0;
+        
+        // OPTIMISASI: Today stats dengan query yang lebih efisien
+        $todayStart = now()->startOfDay();
+        $todayEnd = now()->endOfDay();
+        
+        $todayStats = Orders::selectRaw('
+                COUNT(*) as orders,
+                SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as revenue
+            ')
+            ->whereBetween('created_at', [$todayStart, $todayEnd]);
+        $this->applyCRSDFilter($todayStats);
+        $todayResult = $todayStats->first();
+        
+        $todayOrders = (int) $todayResult->orders;
+        $todayRevenue = (int) $todayResult->revenue;
+        
+        $periodDays = $endDate->diffInDays($startDate) + 1;
+        
+        // PERBAIKAN: Periode sebelumnya dengan durasi yang sama
+        $previousPeriodStart = (clone $startDate)->subDays($periodDays)->startOfDay();
+        $previousPeriodEnd = (clone $startDate)->subDay()->endOfDay();
+        
+        // OPTIMISASI: Query periode sebelumnya untuk orders dan revenue
+        $previousStats = Orders::selectRaw('
+                COUNT(*) as total_orders,
+                SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as total_revenue
+            ')
+            ->whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd]);
+        $this->applyCRSDFilter($previousStats);
+        $previousResult = $previousStats->first();
+        
+        $previousPeriodRevenue = (int) $previousResult->total_revenue;
+        $previousPeriodOrders = (int) $previousResult->total_orders;
+        
+        // PERBAIKAN: Growth calculation sesuai logika lama
+        $revenueGrowth = 0;
+        if ($previousPeriodRevenue > 0) {
+            $revenueGrowth = (($totalRevenue - $previousPeriodRevenue) / $previousPeriodRevenue) * 100;
+        } elseif ($totalRevenue > 0) {
+            $revenueGrowth = 100;
+        }
+        
+        $orderGrowth = 0;
+        if ($previousPeriodOrders > 0) {
+            $orderGrowth = (($totalOrders - $previousPeriodOrders) / $previousPeriodOrders) * 100;
+        } elseif ($totalOrders > 0) {
+            $orderGrowth = 100;
+        }
+
+        // OPTIMISASI: Chart data dengan single query menggunakan GROUP BY
+        $chartQuery = Orders::selectRaw('
+                DATE(created_at) as date,
+                COUNT(*) as orders,
+                SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as revenue
+            ')
+            ->whereBetween('created_at', [$startDate, $endDate]);
+        $this->applyCRSDFilter($chartQuery);
+        
+        $chartResults = $chartQuery->groupBy(DB::raw('DATE(created_at)'))
+            ->orderBy('date')
+            ->get();
+        
+        // Format chart data - sesuai format kode lama
+        $chartData = [];
+        $chartResultsMap = $chartResults->keyBy('date');
+        
+        $currentDate = clone $startDate;
+        while ($currentDate <= $endDate) {
+            $dateString = $currentDate->format('Y-m-d');
+            $dayData = $chartResultsMap->get($dateString);
+            
+            $chartData[] = [
+                'date' => $currentDate->format('d M'),
+                'orders' => $dayData ? (int) $dayData->orders : 0,
+                'revenue' => $dayData ? (int) $dayData->revenue : 0
+            ];
+            
+            $currentDate->addDay();
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Statistik berhasil dimuat',
+            'data' => [
+                'totalOrders' => $totalOrders,
+                'totalRevenue' => $totalRevenue,
+                'completedOrders' => $completedOrders,
+                'processingOrders' => $processingOrders,
+                'canceledOrders' => $canceledOrders,
+                'averageOrderValue' => $averageOrderValue,
+                'todayOrders' => $todayOrders,
+                'todayRevenue' => $todayRevenue,
+                'revenueGrowth' => round($revenueGrowth, 2),
+                'orderGrowth' => round($orderGrowth, 2),
+                'chartData' => $chartData,
+                'periodInfo' => [
+                    'start_date' => $startDate->format('Y-m-d'),
+                    'end_date' => $endDate->format('Y-m-d'),
+                    'days' => $periodDays,
+                    'previous_period' => [
+                        'start_date' => $previousPeriodStart->format('Y-m-d'),
+                        'end_date' => $previousPeriodEnd->format('Y-m-d')
+                    ]
+                ]
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        Log::error('Statistics error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mengambil statistik: ' . $e->getMessage()
+        ], 500);
+    }
+}
     public function getReports(Request $request)
     {
         try {
@@ -984,85 +1028,112 @@ class AdminController extends Controller
     }
     
     public function getAllOrders(Request $request)
-    {
-        try {
-            $user = auth()->guard('api')->user();
+{
+    try {
+        $user = auth()->guard('api')->user();
 
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
-            }
-
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-
-            $query = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
-                ->orderBy('created_at', 'desc');
-            
-            $this->applyCRSDFilter($query);
-            
-            if ($request->has('status') && $request->status !== 'all') {
-                $query->where('order_status', $request->status);
-            }
-            
-            if ($request->has('date')) {
-                $query->whereDate('created_at', $request->date);
-            }
-            
-            if ($request->has('crsd_type') && $request->crsd_type !== 'all') {
-                $crsdType = $request->crsd_type;
-                $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
-                $query->whereHas('user', function($q) use ($divisiName) {
-                    $q->where('divisi', $divisiName);
-                });
-            }
-            
-            if ($request->has('search')) {
-                $search = $request->search;
-                $query->where(function($q) use ($search) {
-                    $q->where('order_code', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($q2) use ($search) {
-                          $q2->where('name', 'like', "%{$search}%")
-                             ->orWhere('email', 'like', "%{$search}%")
-                             ->orWhere('phone', 'like', "%{$search}%");
-                      })
-                      ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
-                          $q3->where('name', 'like', "%{$search}%");
-                      });
-                });
-            }
-
-            $orders = $query->get();
-            
-            $orders->each(function($order) {
-                if ($order->user && $order->user->divisi === 'CRSD 2') {
-                    $order->crsd_type = 'crsd2';
-                } else {
-                    $order->crsd_type = 'crsd1';
-                }
-            });
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Orders retrieved successfully',
-                'data' => $orders
-            ], 200);
-            
-        } catch (\Exception $e) {
-            Log::error('Error in getAllOrders: ' . $e->getMessage());
+        if (!$user) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil data pesanan',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'Unauthenticated'
+            ], 401);
         }
+
+        if (!in_array($user->role, ['admin', 'superadmin'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses'
+            ], 403);
+        }
+
+        // Gunakan relasi yang pasti ada: user, items, restaurant, dan area melalui restaurant
+        $query = Orders::with([
+            'user', 
+            'items.menu',
+            'restaurant.area' // Mengakses area melalui restaurant
+        ])->orderBy('created_at', 'desc');
+        
+        $this->applyCRSDFilter($query);
+        
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('order_status', $request->status);
+        }
+        
+        if ($request->has('date')) {
+            $query->whereDate('created_at', $request->date);
+        }
+        
+        if ($request->has('crsd_type') && $request->crsd_type !== 'all') {
+            $crsdType = $request->crsd_type;
+            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+            $query->whereHas('user', function($q) use ($divisiName) {
+                $q->where('divisi', $divisiName);
+            });
+        }
+        
+        // Filter berdasarkan area melalui restaurant (jika diminta)
+        if ($request->has('area_id') && $request->area_id !== 'all') {
+            $query->whereHas('restaurant.area', function($q) use ($request) {
+                $q->where('id', $request->area_id);
+            });
+        }
+        
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('order_code', 'like', "%{$search}%")
+                  ->orWhereHas('user', function($q2) use ($search) {
+                      $q2->where('name', 'like', "%{$search}%")
+                         ->orWhere('email', 'like', "%{$search}%")
+                         ->orWhere('phone', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('restaurant', function($q3) use ($search) {
+                      $q3->where('name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('restaurant.area', function($q4) use ($search) {
+                      $q4->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $orders = $query->get();
+        
+        // Proses data untuk menambahkan area information
+        $orders->each(function($order) {
+            // CRSD type sudah ada di model (accessor getCrsdTypeAttribute)
+            // Tidak perlu set ulang karena sudah ada di model
+            
+            // Ambil area dari restaurant jika ada
+            if ($order->restaurant && $order->restaurant->area) {
+                $order->area = $order->restaurant->area;
+                $order->area_name = $order->restaurant->area->name;
+                $order->area_icon = $order->restaurant->area->icon;
+            } else {
+                // Default jika tidak ada area
+                $order->area = null;
+                $order->area_name = 'Unknown Area';
+                $order->area_icon = '📍';
+            }
+            
+            // Hitung jumlah item
+            $order->items_count = $order->items->count();
+        });
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Orders retrieved successfully',
+            'data' => $orders
+        ], 200);
+        
+    } catch (\Exception $e) {
+        Log::error('Error in getAllOrders: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mengambil data pesanan',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
     
     public function getCRSDOrders(Request $request, $crsdType)
     {
