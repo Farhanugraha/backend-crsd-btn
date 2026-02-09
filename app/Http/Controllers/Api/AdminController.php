@@ -581,107 +581,179 @@ class AdminController extends Controller
     }
 }
     public function getReports(Request $request)
-    {
-        try {
-            $user = auth()->guard('api')->user();
+{
+    try {
+        $user = auth()->guard('api')->user();
 
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-
-            $startDateInput = $request->get('start_date', now()->startOfMonth()->toDateString());
-            $endDateInput = $request->get('end_date', now()->toDateString());
-
-            try {
-                $startDate = Carbon::parse($startDateInput)->startOfDay();
-                $endDate = Carbon::parse($endDateInput)->endOfDay();
-
-                if ($startDate > $endDate) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
-                    ], 400);
-                }
-            } catch (\Exception $e) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Format tanggal tidak valid'
-                ], 400);
-            }
-
-            $baseQuery = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
-                ->whereBetween('created_at', [$startDate, $endDate]);
-            
-            $this->applyCRSDFilter($baseQuery);
-            
-            $totalOrders = $baseQuery->count();
-            
-            $revenueQuery = Orders::where('status', 'paid')
-                ->whereBetween('created_at', [$startDate, $endDate]);
-            $this->applyCRSDFilter($revenueQuery);
-            $totalRevenue = (int) $revenueQuery->sum('total_price');
-            
-            $completedOrders = $baseQuery->clone()->where('order_status', 'completed')->count();
-            $processingOrders = $baseQuery->clone()->where('order_status', 'processing')->count();
-            $pendingOrders = $baseQuery->clone()->where('status', 'pending')->count();
-            $canceledOrders = $baseQuery->clone()->where('order_status', 'canceled')->count();
-            
-            $ordersQuery = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
-                ->whereBetween('created_at', [$startDate, $endDate])
-                ->orderBy('created_at', 'desc');
-            
-            $this->applyCRSDFilter($ordersQuery);
-            
-            if ($request->has('status') && $request->status !== 'all') {
-                $ordersQuery->where('order_status', $request->status);
-            }
-            
-            if ($request->has('payment_status') && $request->payment_status !== 'all') {
-                $ordersQuery->where('status', $request->payment_status);
-            }
-            
-            $orders = $ordersQuery->get();
-            
-            $orders->each(function($order) {
-                if ($order->user && $order->user->divisi === 'CRSD 2') {
-                    $order->crsd_type = 'crsd2';
-                } else {
-                    $order->crsd_type = 'crsd1';
-                }
-            });
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Laporan berhasil dimuat',
-                'data' => [
-                    'summary' => [
-                        'period' => [
-                            'start_date' => $startDate->format('Y-m-d'),
-                            'end_date' => $endDate->format('Y-m-d'),
-                        ],
-                        'total_orders' => $totalOrders,
-                        'total_revenue' => $totalRevenue,
-                        'completed_orders' => $completedOrders,
-                        'processing_orders' => $processingOrders,
-                        'pending_orders' => $pendingOrders,
-                        'canceled_orders' => $canceledOrders,
-                        'average_order_value' => $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0,
-                    ],
-                    'orders' => $orders,
-                ]
-            ], 200);
-
-        } catch (\Exception $e) {
-            Log::error('getReports error: ' . $e->getMessage());
+        if (!in_array($user->role, ['admin', 'superadmin'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil laporan: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Anda tidak memiliki akses'
+            ], 403);
         }
+
+        $startDateInput = $request->get('start_date', now()->startOfMonth()->toDateString());
+        $endDateInput = $request->get('end_date', now()->toDateString());
+
+        try {
+            $startDate = Carbon::parse($startDateInput)->startOfDay();
+            $endDate = Carbon::parse($endDateInput)->endOfDay();
+
+            if ($startDate > $endDate) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Format tanggal tidak valid'
+            ], 400);
+        }
+
+        // PERBAIKAN: Load restaurant melalui items
+        $baseQuery = Orders::with(['user', 'items.menu.restaurant.area'])
+            ->whereBetween('created_at', [$startDate, $endDate]);
+        
+        $this->applyCRSDFilter($baseQuery);
+        
+        // Filter area berdasarkan items
+        if ($request->has('area_id') && $request->area_id !== 'all') {
+            $areaId = $request->area_id;
+            $baseQuery->whereHas('items.menu.restaurant.area', function($q) use ($areaId) {
+                $q->where('id', $areaId);
+            });
+        }
+        
+        // Filter restaurant berdasarkan items
+        if ($request->has('restaurant_id') && $request->restaurant_id !== 'all') {
+            $restaurantId = $request->restaurant_id;
+            $baseQuery->whereHas('items.menu.restaurant', function($q) use ($restaurantId) {
+                $q->where('id', $restaurantId);
+            });
+        }
+        
+        $totalOrders = $baseQuery->count();
+        
+        $revenueQuery = Orders::where('status', 'paid')
+            ->whereBetween('created_at', [$startDate, $endDate]);
+        $this->applyCRSDFilter($revenueQuery);
+        
+        // Filter revenue query juga
+        if ($request->has('area_id') && $request->area_id !== 'all') {
+            $areaId = $request->area_id;
+            $revenueQuery->whereHas('items.menu.restaurant.area', function($q) use ($areaId) {
+                $q->where('id', $areaId);
+            });
+        }
+        
+        if ($request->has('restaurant_id') && $request->restaurant_id !== 'all') {
+            $restaurantId = $request->restaurant_id;
+            $revenueQuery->whereHas('items.menu.restaurant', function($q) use ($restaurantId) {
+                $q->where('id', $restaurantId);
+            });
+        }
+        
+        $totalRevenue = (int) $revenueQuery->sum('total_price');
+        
+        $completedOrders = $baseQuery->clone()->where('order_status', 'completed')->count();
+        $processingOrders = $baseQuery->clone()->where('order_status', 'processing')->count();
+        $pendingOrders = $baseQuery->clone()->where('status', 'pending')->count();
+        $canceledOrders = $baseQuery->clone()->where('order_status', 'canceled')->count();
+        
+        $ordersQuery = Orders::with(['user', 'items.menu.restaurant.area'])
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->orderBy('created_at', 'desc');
+        
+        $this->applyCRSDFilter($ordersQuery);
+        
+        // Filter untuk orders query juga
+        if ($request->has('area_id') && $request->area_id !== 'all') {
+            $areaId = $request->area_id;
+            $ordersQuery->whereHas('items.menu.restaurant.area', function($q) use ($areaId) {
+                $q->where('id', $areaId);
+            });
+        }
+        
+        if ($request->has('restaurant_id') && $request->restaurant_id !== 'all') {
+            $restaurantId = $request->restaurant_id;
+            $ordersQuery->whereHas('items.menu.restaurant', function($q) use ($restaurantId) {
+                $q->where('id', $restaurantId);
+            });
+        }
+        
+        if ($request->has('status') && $request->status !== 'all') {
+            $ordersQuery->where('order_status', $request->status);
+        }
+        
+        if ($request->has('payment_status') && $request->payment_status !== 'all') {
+            $ordersQuery->where('status', $request->payment_status);
+        }
+        
+        $orders = $ordersQuery->get();
+        
+        // Proses data untuk handle multiple restaurants/areas
+        $orders->each(function($order) {
+            // CRSD type
+            if ($order->user && $order->user->divisi === 'CRSD 2') {
+                $order->crsd_type = 'crsd2';
+            } else {
+                $order->crsd_type = 'crsd1';
+            }
+            
+            // Ambil restaurant pertama untuk backward compatibility
+            $firstRestaurant = null;
+            $firstArea = null;
+            
+            foreach ($order->items as $item) {
+                if ($item->menu && $item->menu->restaurant) {
+                    if (!$firstRestaurant) {
+                        $firstRestaurant = $item->menu->restaurant;
+                        if ($firstRestaurant->area) {
+                            $firstArea = $firstRestaurant->area;
+                        }
+                    }
+                    break;
+                }
+            }
+            
+            // Untuk response
+            $order->restaurant = $firstRestaurant;
+            $order->area = $firstArea;
+            $order->area_name = $firstArea ? $firstArea->name : 'Multiple Areas';
+            $order->area_icon = $firstArea ? $firstArea->icon : '📍';
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Laporan berhasil dimuat',
+            'data' => [
+                'summary' => [
+                    'period' => [
+                        'start_date' => $startDate->format('Y-m-d'),
+                        'end_date' => $endDate->format('Y-m-d'),
+                    ],
+                    'total_orders' => $totalOrders,
+                    'total_revenue' => $totalRevenue,
+                    'completed_orders' => $completedOrders,
+                    'processing_orders' => $processingOrders,
+                    'pending_orders' => $pendingOrders,
+                    'canceled_orders' => $canceledOrders,
+                    'average_order_value' => $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0,
+                ],
+                'orders' => $orders,
+            ]
+        ], 200);
+
+    } catch (\Exception $e) {
+        Log::error('getReports error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mengambil laporan: ' . $e->getMessage()
+        ], 500);
     }
+}
     
     public function getOrdersDetail(Request $request)
     {
@@ -1046,11 +1118,10 @@ class AdminController extends Controller
             ], 403);
         }
 
-        // Gunakan relasi yang pasti ada: user, items, restaurant, dan area melalui restaurant
+        // PERBAIKAN: Load restaurant melalui items.menu.restaurant agar dapat semua restaurants
         $query = Orders::with([
             'user', 
-            'items.menu',
-            'restaurant.area' // Mengakses area melalui restaurant
+            'items.menu.restaurant.area' // Load restaurant melalui menu
         ])->orderBy('created_at', 'desc');
         
         $this->applyCRSDFilter($query);
@@ -1071,10 +1142,19 @@ class AdminController extends Controller
             });
         }
         
-        // Filter berdasarkan area melalui restaurant (jika diminta)
+        // Filter berdasarkan area (cek dari semua items)
         if ($request->has('area_id') && $request->area_id !== 'all') {
-            $query->whereHas('restaurant.area', function($q) use ($request) {
-                $q->where('id', $request->area_id);
+            $areaId = $request->area_id;
+            $query->whereHas('items.menu.restaurant.area', function($q) use ($areaId) {
+                $q->where('id', $areaId);
+            });
+        }
+        
+        // Filter berdasarkan restaurant (cek dari semua items)
+        if ($request->has('restaurant_id') && $request->restaurant_id !== 'all') {
+            $restaurantId = $request->restaurant_id;
+            $query->whereHas('items.menu.restaurant', function($q) use ($restaurantId) {
+                $q->where('id', $restaurantId);
             });
         }
         
@@ -1087,10 +1167,10 @@ class AdminController extends Controller
                          ->orWhere('email', 'like', "%{$search}%")
                          ->orWhere('phone', 'like', "%{$search}%");
                   })
-                  ->orWhereHas('restaurant', function($q3) use ($search) {
+                  ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
                       $q3->where('name', 'like', "%{$search}%");
                   })
-                  ->orWhereHas('restaurant.area', function($q4) use ($search) {
+                  ->orWhereHas('items.menu.restaurant.area', function($q4) use ($search) {
                       $q4->where('name', 'like', "%{$search}%");
                   });
             });
@@ -1098,22 +1178,58 @@ class AdminController extends Controller
 
         $orders = $query->get();
         
-        // Proses data untuk menambahkan area information
+        // Proses data untuk menambahkan area information dari SEMUA restaurants
         $orders->each(function($order) {
-            // CRSD type sudah ada di model (accessor getCrsdTypeAttribute)
-            // Tidak perlu set ulang karena sudah ada di model
+            // CRSD type dari user divisi
+            $order->crsd_type = $order->getCrsdTypeAttribute();
             
-            // Ambil area dari restaurant jika ada
-            if ($order->restaurant && $order->restaurant->area) {
-                $order->area = $order->restaurant->area;
-                $order->area_name = $order->restaurant->area->name;
-                $order->area_icon = $order->restaurant->area->icon;
-            } else {
-                // Default jika tidak ada area
-                $order->area = null;
-                $order->area_name = 'Unknown Area';
-                $order->area_icon = '📍';
-            }
+            // Helper function untuk mendapatkan semua restaurants unik dari order
+            $getAllRestaurants = function($order) {
+                $restaurants = [];
+                foreach ($order->items as $item) {
+                    if ($item->menu && $item->menu->restaurant) {
+                        $restaurantId = $item->menu->restaurant->id;
+                        if (!isset($restaurants[$restaurantId])) {
+                            $restaurants[$restaurantId] = $item->menu->restaurant;
+                        }
+                    }
+                }
+                return array_values($restaurants);
+            };
+            
+            // Helper function untuk mendapatkan semua areas unik dari order
+            $getAllAreas = function($order) {
+                $areas = [];
+                foreach ($order->items as $item) {
+                    if ($item->menu && $item->menu->restaurant && $item->menu->restaurant->area) {
+                        $areaId = $item->menu->restaurant->area->id;
+                        if (!isset($areas[$areaId])) {
+                            $areas[$areaId] = $item->menu->restaurant->area;
+                        }
+                    }
+                }
+                return array_values($areas);
+            };
+            
+            // Ambil semua restaurants dari order
+            $allRestaurants = $getAllRestaurants($order);
+            $allAreas = $getAllAreas($order);
+            
+            // Untuk backward compatibility: ambil restaurant pertama jika ada
+            $firstRestaurant = !empty($allRestaurants) ? $allRestaurants[0] : null;
+            $firstArea = !empty($allAreas) ? $allAreas[0] : null;
+            
+            // Set untuk response
+            $order->restaurant = $firstRestaurant;
+            $order->area = $firstArea;
+            $order->area_name = $firstArea ? $firstArea->name : 'Multiple Areas';
+            $order->area_icon = $firstArea ? $firstArea->icon : '📍';
+            
+            // Tambahkan informasi semua restaurants dan areas
+            $order->all_restaurants = $allRestaurants;
+            $order->all_areas = $allAreas;
+            $order->restaurants_count = count($allRestaurants);
+            $order->areas_count = count($allAreas);
             
             // Hitung jumlah item
             $order->items_count = $order->items->count();
@@ -1136,87 +1252,154 @@ class AdminController extends Controller
 }
     
     public function getCRSDOrders(Request $request, $crsdType)
-    {
-        try {
-            $user = auth()->guard('api')->user();
+{
+    try {
+        $user = auth()->guard('api')->user();
 
-            if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
-            }
-            
-            if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tipe CRSD tidak valid'
-                ], 400);
-            }
-            
-            if ($user->role === 'admin') {
-                $dataAccess = $this->getUserDataAccess();
-                if (!in_array($crsdType, $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
-                    ], 403);
-                }
-            }
-            
-            $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
-            
-            $query = Orders::with(['user', 'items.menu', 'items.menu.restaurant'])
-                ->whereHas('user', function($q) use ($divisiName) {
-                    $q->where('divisi', $divisiName);
-                })
-                ->orderBy('created_at', 'desc');
-            
-            if ($request->has('status') && $request->status !== 'all') {
-                $query->where('order_status', $request->status);
-            }
-            
-            if ($request->has('date')) {
-                $query->whereDate('created_at', $request->date);
-            }
-            
-            if ($request->has('search')) {
-                $search = $request->search;
-                $query->where(function($q) use ($search) {
-                    $q->where('order_code', 'like', "%{$search}%")
-                      ->orWhereHas('user', function($q2) use ($search) {
-                          $q2->where('name', 'like', "%{$search}%")
-                             ->orWhere('email', 'like', "%{$search}%")
-                             ->orWhere('phone', 'like', "%{$search}%");
-                      })
-                      ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
-                          $q3->where('name', 'like', "%{$search}%");
-                      });
-                });
-            }
-
-            $orders = $query->get();
-            
-            $orders->each(function($order) use ($crsdType) {
-                $order->crsd_type = $crsdType;
-            });
-            
-            return response()->json([
-                'success' => true,
-                'message' => 'Orders retrieved successfully for ' . strtoupper($crsdType),
-                'crsd_type' => $crsdType,
-                'data' => $orders
-            ], 200);
-            
-        } catch (\Exception $e) {
-            Log::error('Error in getCRSDOrders: ' . $e->getMessage());
+        if (!in_array($user->role, ['admin', 'superadmin'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mengambil data pesanan',
-                'error' => $e->getMessage()
-            ], 500);
+                'message' => 'Anda tidak memiliki akses'
+            ], 403);
         }
+        
+        if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tipe CRSD tidak valid'
+            ], 400);
+        }
+        
+        if ($user->role === 'admin') {
+            $dataAccess = $this->getUserDataAccess();
+            if (!in_array($crsdType, $dataAccess)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Anda tidak memiliki akses ke CRSD " . strtoupper($crsdType)
+                ], 403);
+            }
+        }
+        
+        $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
+        
+        $query = Orders::with(['user', 'items.menu.restaurant.area']) // UPDATED
+            ->whereHas('user', function($q) use ($divisiName) {
+                $q->where('divisi', $divisiName);
+            })
+            ->orderBy('created_at', 'desc');
+        
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('order_status', $request->status);
+        }
+        
+        if ($request->has('date')) {
+            $query->whereDate('created_at', $request->date);
+        }
+        
+        // Filter area berdasarkan semua items
+        if ($request->has('area_id') && $request->area_id !== 'all') {
+            $areaId = $request->area_id;
+            $query->whereHas('items.menu.restaurant.area', function($q) use ($areaId) {
+                $q->where('id', $areaId);
+            });
+        }
+        
+        // Filter restaurant berdasarkan semua items
+        if ($request->has('restaurant_id') && $request->restaurant_id !== 'all') {
+            $restaurantId = $request->restaurant_id;
+            $query->whereHas('items.menu.restaurant', function($q) use ($restaurantId) {
+                $q->where('id', $restaurantId);
+            });
+        }
+        
+        if ($request->has('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('order_code', 'like', "%{$search}%")
+                  ->orWhereHas('user', function($q2) use ($search) {
+                      $q2->where('name', 'like', "%{$search}%")
+                         ->orWhere('email', 'like', "%{$search}%")
+                         ->orWhere('phone', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('items.menu.restaurant', function($q3) use ($search) {
+                      $q3->where('name', 'like', "%{$search}%");
+                  })
+                  ->orWhereHas('items.menu.restaurant.area', function($q4) use ($search) {
+                      $q4->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
+        $orders = $query->get();
+        
+        // Proses data untuk handle multiple restaurants/areas
+        $orders->each(function($order) use ($crsdType) {
+            $order->crsd_type = $crsdType;
+            
+            // Helper function untuk mendapatkan semua restaurants unik
+            $getAllRestaurants = function($order) {
+                $restaurants = [];
+                foreach ($order->items as $item) {
+                    if ($item->menu && $item->menu->restaurant) {
+                        $restaurantId = $item->menu->restaurant->id;
+                        if (!isset($restaurants[$restaurantId])) {
+                            $restaurants[$restaurantId] = $item->menu->restaurant;
+                        }
+                    }
+                }
+                return array_values($restaurants);
+            };
+            
+            // Helper function untuk mendapatkan semua areas unik
+            $getAllAreas = function($order) {
+                $areas = [];
+                foreach ($order->items as $item) {
+                    if ($item->menu && $item->menu->restaurant && $item->menu->restaurant->area) {
+                        $areaId = $item->menu->restaurant->area->id;
+                        if (!isset($areas[$areaId])) {
+                            $areas[$areaId] = $item->menu->restaurant->area;
+                        }
+                    }
+                }
+                return array_values($areas);
+            };
+            
+            $allRestaurants = $getAllRestaurants($order);
+            $allAreas = $getAllAreas($order);
+            
+            // Untuk backward compatibility
+            $firstRestaurant = !empty($allRestaurants) ? $allRestaurants[0] : null;
+            $firstArea = !empty($allAreas) ? $allAreas[0] : null;
+            
+            $order->restaurant = $firstRestaurant;
+            $order->area = $firstArea;
+            $order->area_name = $firstArea ? $firstArea->name : 'Multiple Areas';
+            $order->area_icon = $firstArea ? $firstArea->icon : '📍';
+            $order->items_count = $order->items->count();
+            
+            // Tambahan informasi
+            $order->all_restaurants = $allRestaurants;
+            $order->all_areas = $allAreas;
+            $order->restaurants_count = count($allRestaurants);
+            $order->areas_count = count($allAreas);
+        });
+        
+        return response()->json([
+            'success' => true,
+            'message' => 'Orders retrieved successfully for ' . strtoupper($crsdType),
+            'crsd_type' => $crsdType,
+            'data' => $orders
+        ], 200);
+        
+    } catch (\Exception $e) {
+        Log::error('Error in getCRSDOrders: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mengambil data pesanan',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
     
     public function listUsers(Request $request)
     {

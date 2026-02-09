@@ -305,18 +305,16 @@ public function updateUser(Request $request, $id)
 
         // Validate the request
         $validator = Validator::make($request->all(), [
-            'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|max:255|unique:users,email,' . $user->id,
+            'name' => 'sometimes|required|string|max:255',
+            'email' => 'sometimes|required|email|max:255|unique:users,email,' . $user->id,
             'phone' => 'nullable|string|max:20',
-            'role' => 'sometimes|in:user,admin,superadmin',
+            'role' => 'sometimes|required|in:user,admin,superadmin',
             'divisi' => 'nullable|string|max:255',
             'unit_kerja' => 'nullable|string|max:100',
-            'data_access' => 'nullable|array',
-            'data_access.*' => 'string|in:crsd1,crsd2' // Hanya CRSD 1 dan CRSD 2
+            'data_access' => 'nullable|string' // Ubah dari array ke string karena frontend mengirim JSON string
         ], [
             'email.unique' => 'Email sudah terdaftar',
             'role.in' => 'Role harus user, admin, atau superadmin',
-            'data_access.*.in' => 'Data access harus crsd1 atau crsd2'
         ]);
 
         if ($validator->fails()) {
@@ -337,43 +335,61 @@ public function updateUser(Request $request, $id)
 
         foreach ($fields as $field) {
             if ($request->has($field)) {
-                $updateData[$field] = $request->$field;
+                // Trim semua string fields
+                if (is_string($request->$field)) {
+                    $updateData[$field] = trim($request->$field);
+                } else {
+                    $updateData[$field] = $request->$field;
+                }
             }
         }
 
         // Handle data_access update
-        if ($request->has('data_access')) {
+        if ($request->has('data_access') && $request->data_access !== null) {
             $newRole = $request->has('role') ? $request->role : $user->role;
             
             if ($newRole === 'admin') {
-                if (empty($request->data_access) || !is_array($request->data_access)) {
+                // Parse JSON string to array
+                $dataAccess = json_decode($request->data_access, true);
+                
+                // Validasi jika decode berhasil
+                if (json_last_error() !== JSON_ERROR_NONE || !is_array($dataAccess)) {
                     return response()->json([
                         'success' => false,
-                        'message' => 'Data access wajib diisi untuk role admin',
-                        'errors' => ['data_access' => ['Data access wajib diisi untuk admin']]
+                        'message' => 'Format data_access tidak valid. Harus JSON array.',
+                        'errors' => ['data_access' => ['Format data_access tidak valid']]
                     ], 422);
                 }
                 
-                // Validasi data_access hanya crsd1 dan crsd2
-                $invalidTypes = array_diff($request->data_access, ['crsd1', 'crsd2']);
-                if (!empty($invalidTypes)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Data access tidak valid. Hanya crsd1 dan crsd2 yang diperbolehkan.',
-                        'errors' => ['data_access' => ['Data access tidak valid']]
-                    ], 422);
+                // Validasi isi array hanya crsd1 dan crsd2
+                if (!empty($dataAccess)) {
+                    $invalidTypes = array_filter($dataAccess, function($type) {
+                        return !in_array($type, ['crsd1', 'crsd2']);
+                    });
+                    
+                    if (!empty($invalidTypes)) {
+                        return response()->json([
+                            'success' => false,
+                            'message' => 'Data access tidak valid. Hanya crsd1 dan crsd2 yang diperbolehkan.',
+                            'errors' => ['data_access' => ['Data access tidak valid']]
+                        ], 422);
+                    }
                 }
                 
-                // JANGAN menggunakan json_encode() di sini
-                $updateData['data_access'] = $request->data_access; // Langsung array
+                // Jika role admin dan data_access kosong array, set ke null
+                if (empty($dataAccess)) {
+                    $updateData['data_access'] = null;
+                } else {
+                    $updateData['data_access'] = $dataAccess; // Langsung array
+                }
             } else {
                 // Clear data_access for non-admin users
                 $updateData['data_access'] = null;
             }
-        } elseif ($request->has('role') && $request->role === 'admin') {
-            // Jika role berubah menjadi admin, cek apakah sudah punya data_access
-            $currentDataAccess = $user->data_access;
-            if (empty($currentDataAccess)) {
+        } elseif ($request->has('role') && $request->role === 'admin' && $user->role !== 'admin') {
+            // Jika role berubah menjadi admin dari non-admin
+            // Cek apakah data_access sudah ada
+            if (empty($user->data_access)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Data access wajib diisi untuk role admin',
@@ -394,7 +410,7 @@ public function updateUser(Request $request, $id)
         }
 
         // Log data_access changes separately
-        if ($request->has('data_access')) {
+        if (isset($updateData['data_access'])) {
             $newAccess = $user->data_access;
             if ($oldDataAccess != $newAccess) {
                 $changes['data_access'] = [
@@ -423,7 +439,6 @@ public function updateUser(Request $request, $id)
         ], 500);
     }
 }
-
     /**
  * NEW: Set Data Access for Admin
  * POST /api/superadmin/users/{id}/data-access
