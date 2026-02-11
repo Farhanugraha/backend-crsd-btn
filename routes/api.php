@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\MenuController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\OrdersController;
 use App\Http\Controllers\Api\PaymentsController;
+use App\Http\Controllers\Api\PaymentSettingsController; 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -601,6 +602,28 @@ Route::middleware(['auth:api', 'role:superadmin'])
                     ->name('emailConfig.update-put');
             });
         });
+
+        /*
+        |----------------------------------------------------------------------
+        | PAYMENT SETTINGS ROUTES
+        |----------------------------------------------------------------------
+        */
+        Route::prefix('payment-settings')->name('payment-settings.')->group(function () {
+            Route::get('/', [PaymentSettingsController::class, 'getSettings'])
+                ->name('get');
+            
+            Route::post('/', [PaymentSettingsController::class, 'update']) 
+                ->name('store');
+            
+            Route::put('/', [PaymentSettingsController::class, 'update']) 
+                ->name('update');
+            
+            Route::post('/upload-qris', [PaymentSettingsController::class, 'uploadQrisImage'])
+                ->name('upload.qris');
+            
+            Route::delete('/delete-qris', [PaymentSettingsController::class, 'deleteQrisImage'])
+                ->name('delete.qris');
+        });
         
         /*
         |----------------------------------------------------------------------
@@ -731,6 +754,14 @@ Route::middleware(['auth:api', 'role:superadmin'])
                 ->name('revenueTrends');
         });
     });
+
+/*
+|--------------------------------------------------------------------------
+| PUBLIC PAYMENT METHODS ROUTE (untuk checkout page)
+|--------------------------------------------------------------------------
+*/
+Route::get('/payment-methods', [PaymentSettingsController::class, 'getPaymentMethods'])
+    ->name('payment.methods');
 
 /*
 |--------------------------------------------------------------------------
