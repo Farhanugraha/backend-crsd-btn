@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
-class PaymentSetting extends Model
+class PaymentSettings extends Model
 {
     use HasFactory;
 
