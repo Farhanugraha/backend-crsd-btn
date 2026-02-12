@@ -233,13 +233,22 @@ class PaymentSettingsController extends Controller
         try {
             $settings = PaymentSettings::getSettings();
             
+            // Format response sesuai dengan yang diharapkan frontend
             return response()->json([
                 'success' => true,
                 'data' => [
+                    'id' => $settings->id,
+                    'qris_title' => $settings->qris_title,
+                    'qris_image' => $settings->qris_image,
+                    'qris_image_url' => $settings->qris_image_url,
+                    'qris_active' => (bool) $settings->qris_active,
+                    'bank_name' => $settings->bank_name,
+                    'account_number' => $settings->account_number,
+                    'account_name' => $settings->account_name,
+                    'bank_active' => (bool) $settings->bank_active,
                     'active' => (bool) $settings->active,
-                    'methods' => $settings->getAvailableMethods(),
-                    'qris_available' => $settings->qrisAvailable(),
-                    'bank_transfer_available' => $settings->bankTransferAvailable(),
+                    'created_at' => $settings->created_at,
+                    'updated_at' => $settings->updated_at,
                 ],
             ]);
         } catch (\Exception $e) {

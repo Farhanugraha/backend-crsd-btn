@@ -19,53 +19,57 @@ class SuperAdminController extends Controller
      * SUPERADMIN DASHBOARD
      * =====================================================================
      */
+/**
+ * Get SuperAdmin Dashboard Statistics
+ * GET /api/superadmin/dashboard
+ */
 
-    /**
-     * Get SuperAdmin Dashboard Statistics
-     * GET /api/superadmin/dashboard
-     */
-    public function dashboard()
-    {
-        try {
-            // Helper function untuk count admins dengan data_access
-            $countAdminsWithAccess = function($accessType) {
-                return User::where('role', 'admin')
-                    ->where(function ($query) use ($accessType) {
-                        $dataAccess = $this->parseDataAccessToString($accessType);
-                        $query->where('data_access', 'like', '%' . $accessType . '%')
-                              ->orWhere('data_access', 'like', '%"' . $accessType . '"%');
-                    })->count();
-            };
+public function dashboard()
+{
+    try {
+        // Helper function untuk count admins dengan data_access
+        $countAdminsWithAccess = function($accessType) {
+            return User::where('role', 'admin')
+                ->where(function ($query) use ($accessType) {
+                    $query->where('data_access', 'like', '%' . $accessType . '%')
+                          ->orWhere('data_access', 'like', '%"' . $accessType . '"%');
+                })->count();
+        };
 
-            $stats = [
-                'total_orders' => Orders::count(),
-                'total_users' => User::count(),
-                'total_admins' => User::where('role', 'admin')->count(),
-                'total_superadmins' => User::where('role', 'superadmin')->count(),
-                'total_crsd1_admins' => $countAdminsWithAccess('crsd1'),
-                'total_crsd2_admins' => $countAdminsWithAccess('crsd2'),
-                'pending_orders' => Orders::where('status', 'pending')->count(),
-                'processing_orders' => Orders::where('status', 'processing')->count(),
-                'completed_orders' => Orders::where('status', 'completed')->count(),
-                'canceled_orders' => Orders::where('status', 'canceled')->count(),
-                'total_revenue' => Payments::where('status', 'completed')->sum('amount'),
-                'pending_payments' => Payments::where('status', 'pending')->count(),
-            ];
+        // Hitung statistik dasar
+        $stats = [
+            'total_orders' => Orders::count(),
+            'today_orders' => Orders::whereDate('created_at', today())->count(),
+            'total_users' => User::count(),
+            'total_admins' => User::where('role', 'admin')->count(),
+            'total_superadmins' => User::where('role', 'superadmin')->count(),
+            'total_crsd1_admins' => $countAdminsWithAccess('crsd1'),
+            'total_crsd2_admins' => $countAdminsWithAccess('crsd2'),
+            
+            // HANYA STATUS PESANAN HARI INI
+            'today_processing_orders' => Orders::whereDate('created_at', today())
+                ->where('order_status', 'processing')->count(),
+            'today_completed_orders' => Orders::whereDate('created_at', today())
+                ->where('order_status', 'completed')->count(),
+            'today_canceled_orders' => Orders::whereDate('created_at', today())
+                ->where('order_status', 'canceled')->count(),
+        ];
 
-            return response()->json([
-                'success' => true,
-                'message' => 'SuperAdmin dashboard loaded successfully',
-                'data' => $stats
-            ], 200);
-        } catch (\Exception $e) {
-            Log::error('Dashboard Error: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to load dashboard',
-                'error' => $e->getMessage()
-            ], 500);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'SuperAdmin dashboard loaded successfully',
+            'data' => $stats
+        ], 200);
+    } catch (\Exception $e) {
+        Log::error('Dashboard Error: ' . $e->getMessage());
+        Log::error('Dashboard Error Trace: ' . $e->getTraceAsString());
+        return response()->json([
+            'success' => false,
+            'message' => 'Failed to load dashboard',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     /**
      * =====================================================================
