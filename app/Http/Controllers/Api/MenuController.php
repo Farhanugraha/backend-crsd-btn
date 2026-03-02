@@ -7,6 +7,7 @@ use App\Models\Menu;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log; // TAMBAHKAN INI
 use Illuminate\Support\Str;
 
 class MenuController extends Controller
@@ -27,6 +28,8 @@ class MenuController extends Controller
                 'data' => $menus
             ], 200);
         } catch (\Exception $e) {
+            Log::error('Failed to retrieve menus: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve menus',
@@ -56,6 +59,8 @@ class MenuController extends Controller
                 'data' => $menu
             ], 200);
         } catch (\Exception $e) {
+            Log::error('Failed to retrieve menu: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to retrieve menu',
@@ -106,11 +111,16 @@ class MenuController extends Controller
             $path = $file->storeAs('uploads', $filename, 'public');
             
             if (!$path) {
+                Log::error('Failed to save file: ' . $filename);
+                
                 return response()->json([
                     'success' => false,
                     'message' => 'Failed to save file'
                 ], 500);
             }
+            
+            Log::info('File uploaded successfully: ' . $filename);
+            
             return response()->json([
                 'success' => true,
                 'message' => 'File uploaded successfully',
@@ -121,6 +131,8 @@ class MenuController extends Controller
             ], 200);
 
         } catch (\Exception $e) {
+            Log::error('Upload failed: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Upload failed',
@@ -138,7 +150,7 @@ class MenuController extends Controller
             $validator = Validator::make($request->all(), [
                 'restaurant_id' => 'required|exists:restaurants,id',
                 'name' => 'required|string|max:255',
-                'price' => 'required|numeric|min:0',
+                'price' => 'required|numeric|min:0|max:999999999',
                 'image' => 'nullable|string',
                 'is_available' => 'sometimes|boolean'
             ]);
@@ -151,14 +163,17 @@ class MenuController extends Controller
                 ], 422);
             }
 
-            // Prepare data
+            // Hanya ambil field yang diizinkan
             $data = [
                 'restaurant_id' => $request->restaurant_id,
                 'name' => $request->name,
-                'price' => $request->price,
+                'price' => (int) $request->price, // Cast ke integer
                 'image' => $request->image ?? null,
-                'is_available' => $request->is_available ?? true
+                'is_available' => $request->has('is_available') ? (bool) $request->is_available : true
             ];
+
+            // Log untuk debugging
+            Log::info('Creating menu with data:', $data);
 
             $menu = Menu::create($data);
 
@@ -167,7 +182,10 @@ class MenuController extends Controller
                 'message' => 'Menu created successfully',
                 'data' => $menu
             ], 201);
+            
         } catch (\Exception $e) {
+            Log::error('Failed to create menu: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to create menu',
@@ -193,8 +211,8 @@ class MenuController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'name' => 'sometimes|string|max:255',
-                'price' => 'sometimes|numeric|min:0',
-                'image' => 'sometimes|string',
+                'price' => 'sometimes|numeric|min:0|max:999999999',
+                'image' => 'nullable|string',
                 'is_available' => 'sometimes|boolean'
             ]);
 
@@ -206,25 +224,49 @@ class MenuController extends Controller
                 ], 422);
             }
 
-            // Store old image name untuk delete nanti
-            $oldImage = $menu->image;
-
-            // Update menu
-            $menu->update($request->all());
-
-            // Delete old image if image is updated
-            if ($request->has('image') && $request->image !== $oldImage) {
-                if ($oldImage && Storage::disk('public')->exists('uploads/' . $oldImage)) {
-                    Storage::disk('public')->delete('uploads/' . $oldImage);
+            // Hanya ambil field yang diizinkan
+            $updateData = [];
+            
+            if ($request->has('name')) {
+                $updateData['name'] = $request->name;
+            }
+            
+            if ($request->has('price')) {
+                $updateData['price'] = (int) $request->price; // Cast ke integer
+            }
+            
+            if ($request->has('image')) {
+                // Store old image name untuk delete nanti
+                $oldImage = $menu->image;
+                $updateData['image'] = $request->image;
+                
+                // Delete old image if image is updated
+                if ($oldImage && $request->image !== $oldImage) {
+                    if ($oldImage && Storage::disk('public')->exists('uploads/' . $oldImage)) {
+                        Storage::disk('public')->delete('uploads/' . $oldImage);
+                        Log::info('Deleted old image: ' . $oldImage);
+                    }
                 }
             }
+            
+            if ($request->has('is_available')) {
+                $updateData['is_available'] = (bool) $request->is_available;
+            }
+
+            // Log untuk debugging
+            Log::info('Updating menu ' . $id . ' with data:', $updateData);
+
+            $menu->update($updateData);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Menu updated successfully',
                 'data' => $menu
             ], 200);
+            
         } catch (\Exception $e) {
+            Log::error('Failed to update menu: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update menu',
@@ -251,15 +293,21 @@ class MenuController extends Controller
             // Delete image from storage
             if ($menu->image && Storage::disk('public')->exists('uploads/' . $menu->image)) {
                 Storage::disk('public')->delete('uploads/' . $menu->image);
+                Log::info('Deleted image: ' . $menu->image);
             }
 
             $menu->delete();
+
+            Log::info('Menu deleted successfully: ' . $id);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Menu deleted successfully'
             ], 200);
+            
         } catch (\Exception $e) {
+            Log::error('Failed to delete menu: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete menu',
@@ -284,7 +332,7 @@ class MenuController extends Controller
             }
 
             $validator = Validator::make($request->all(), [
-                'is_available' => 'sometimes|boolean'
+                'is_available' => 'required|boolean'
             ]);
 
             if ($validator->fails()) {
@@ -295,14 +343,21 @@ class MenuController extends Controller
                 ], 422);
             }
 
-            $menu->update(['is_available' => $request->is_available]);
+            $menu->update([
+                'is_available' => (bool) $request->is_available
+            ]);
+
+            Log::info('Availability toggled for menu ' . $id . ': ' . ($request->is_available ? 'true' : 'false'));
 
             return response()->json([
                 'success' => true,
                 'message' => 'Availability toggled successfully',
                 'data' => $menu
             ], 200);
+            
         } catch (\Exception $e) {
+            Log::error('Failed to toggle availability: ' . $e->getMessage());
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to toggle availability',

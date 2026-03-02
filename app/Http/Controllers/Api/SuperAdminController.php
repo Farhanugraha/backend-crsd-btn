@@ -838,22 +838,11 @@ class SuperAdminController extends Controller
         }
         return [];
     }
-
-    /**
-     * FIX: clearUserCache() sekarang menghapus SEMUA cache keys terkait users
-     * menggunakan Cache::flush() pada tag, atau hapus semua key yang mungkin ada
-     * termasuk key dengan suffix dinamis (page, perPage, sort, order).
-     */
     private function clearUserCache(): void
     {
-        // Hapus cache dashboard
         Cache::forget(self::CACHE_DASHBOARD);
-
-        // Hapus cache admin stats
         Cache::forget(self::CACHE_ADMINS_STATS);
 
-        // Hapus semua kombinasi cache key untuk user list
-        // (page 1-20, perPage 5/10/15/25, sort created_at/name/email, order asc/desc)
         $perPages = [5, 10, 15, 25, 50];
         $sorts    = ['created_at', 'name', 'email', 'role', 'updated_at'];
         $orders   = ['asc', 'desc'];
