@@ -18,11 +18,7 @@ class SuperAdminController extends Controller
     private const CACHE_DASHBOARD      = 'superadmin_dashboard_stats';
     private const CACHE_ADMINS_STATS   = 'superadmin_admins_list_stats';
     private const CACHE_DURATION       = 300;
-    private const CACHE_DURATION_SHORT = 60; 
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  DASHBOARD
-    // ════════════════════════════════════════════════════════════════════════
+    private const CACHE_DURATION_SHORT = 60;
 
     public function dashboard()
     {
@@ -53,10 +49,10 @@ class SuperAdminController extends Controller
                     ->count();
 
                 return [
-                    'total_orders'            => (int) ($orderStats->total_orders ?? 0),
-                    'today_orders'            => (int) ($orderStats->today_orders ?? 0),
-                    'total_users'             => (int) ($userStats->total_users ?? 0),
-                    'total_admins'            => (int) ($userStats->total_admins ?? 0),
+                    'total_orders'            => (int) ($orderStats->total_orders    ?? 0),
+                    'today_orders'            => (int) ($orderStats->today_orders    ?? 0),
+                    'total_users'             => (int) ($userStats->total_users      ?? 0),
+                    'total_admins'            => (int) ($userStats->total_admins     ?? 0),
                     'total_superadmins'       => (int) ($userStats->total_superadmins ?? 0),
                     'total_crsd1_admins'      => $crsd1Admins,
                     'total_crsd2_admins'      => $crsd2Admins,
@@ -78,10 +74,6 @@ class SuperAdminController extends Controller
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    //  LIST USERS
-    // ════════════════════════════════════════════════════════════════════════
-
     public function listAllUsers(Request $request)
     {
         try {
@@ -94,7 +86,6 @@ class SuperAdminController extends Controller
                             ? strtolower($request->get('order', 'desc'))
                             : 'desc';
 
-            // ── TIDAK menggunakan cache agar perubahan status/delete langsung terlihat
             $query = User::query();
 
             if ($search !== '') {
@@ -130,10 +121,6 @@ class SuperAdminController extends Controller
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    //  SHOW USER
-    // ════════════════════════════════════════════════════════════════════════
-
     public function showUser($id)
     {
         try {
@@ -147,10 +134,6 @@ class SuperAdminController extends Controller
             return response()->json(['success' => false, 'message' => 'User not found', 'error' => $e->getMessage()], 404);
         }
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  CREATE USER
-    // ════════════════════════════════════════════════════════════════════════
 
     public function createUser(Request $request)
     {
@@ -216,10 +199,6 @@ class SuperAdminController extends Controller
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    //  UPDATE USER
-    // ════════════════════════════════════════════════════════════════════════
-
     public function updateUser(Request $request, $id)
     {
         try {
@@ -232,7 +211,7 @@ class SuperAdminController extends Controller
                 'role'        => 'sometimes|required|in:user,admin,superadmin',
                 'divisi'      => 'nullable|string|max:255',
                 'unit_kerja'  => 'nullable|string|max:100',
-                'data_access' => 'nullable|string',
+                'data_access' => 'nullable',
             ]);
 
             if ($validator->fails()) {
@@ -249,11 +228,19 @@ class SuperAdminController extends Controller
             }
 
             if ($request->has('data_access')) {
-                $newRole     = $request->has('role') ? $request->role : $user->role;
-                $dataAccess  = json_decode($request->data_access, true);
-                $updateData['data_access'] = ($newRole === 'admin' && json_last_error() === JSON_ERROR_NONE && is_array($dataAccess) && !empty($dataAccess))
-                    ? $dataAccess
-                    : null;
+                $newRole    = $request->has('role') ? $request->role : $user->role;
+                $rawAccess  = $request->data_access;
+
+                if (is_array($rawAccess)) {
+                    $dataAccess = $rawAccess;
+                } elseif (is_string($rawAccess)) {
+                    $decoded    = json_decode($rawAccess, true);
+                    $dataAccess = (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) ? $decoded : [];
+                } else {
+                    $dataAccess = [];
+                }
+
+                $updateData['data_access'] = ($newRole === 'admin' && !empty($dataAccess)) ? $dataAccess : null;
             }
 
             $user->update($updateData);
@@ -263,7 +250,7 @@ class SuperAdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Pengguna berhasil diperbarui',
-                'data'    => $this->formatUserResponse($user),
+                'data'    => $this->formatUserResponse($user->fresh()),
             ]);
 
         } catch (\Exception $e) {
@@ -273,18 +260,11 @@ class SuperAdminController extends Controller
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    //  ACTIVATE USER
-    //  FIX: Selalu update & simpan terlepas dari kondisi saat ini,
-    //       dan pastikan clearUserCache() dipanggil.
-    // ════════════════════════════════════════════════════════════════════════
-
     public function activateUser($id)
     {
         try {
             $user = User::findOrFail($id);
 
-            // Selalu set (tidak hanya jika null) agar tidak ada edge-case
             $user->email_verified_at = now();
             $user->save();
 
@@ -302,10 +282,6 @@ class SuperAdminController extends Controller
             return response()->json(['success' => false, 'message' => 'Failed to activate user', 'error' => $e->getMessage()], 500);
         }
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  DEACTIVATE USER
-    // ════════════════════════════════════════════════════════════════════════
 
     public function deactivateUser($id)
     {
@@ -329,10 +305,6 @@ class SuperAdminController extends Controller
             return response()->json(['success' => false, 'message' => 'Failed to deactivate user', 'error' => $e->getMessage()], 500);
         }
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  DELETE USER
-    // ════════════════════════════════════════════════════════════════════════
 
     public function deleteUser($id)
     {
@@ -367,10 +339,6 @@ class SuperAdminController extends Controller
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    //  BULK ACTIVATE / DEACTIVATE
-    // ════════════════════════════════════════════════════════════════════════
-
     public function bulkActivateUsers(Request $request)   { return $this->bulkUpdateUsers($request, true); }
     public function bulkDeactivateUsers(Request $request) { return $this->bulkUpdateUsers($request, false); }
 
@@ -388,11 +356,9 @@ class SuperAdminController extends Controller
 
             DB::beginTransaction();
 
-            $updatedCount = User::whereIn('id', $request->user_ids)
-                ->when($activate,
-                    fn($q) => $q->update(['email_verified_at' => now()]),
-                    fn($q) => $q->update(['email_verified_at' => null])
-                );
+            $updatedCount = User::whereIn('id', $request->user_ids)->update([
+                'email_verified_at' => $activate ? now() : null,
+            ]);
 
             DB::commit();
             $this->clearUserCache();
@@ -410,10 +376,6 @@ class SuperAdminController extends Controller
             return response()->json(['success' => false, 'message' => 'Gagal memperbarui pengguna secara massal', 'error' => $e->getMessage()], 500);
         }
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  DATA ACCESS
-    // ════════════════════════════════════════════════════════════════════════
 
     public function setDataAccess(Request $request, $id)
     {
@@ -437,6 +399,8 @@ class SuperAdminController extends Controller
             $user->save();
             $this->clearUserCache();
 
+            $parsedAccess = $this->parseDataAccess($user->fresh()->data_access);
+
             Log::info("Data access updated for admin: {$user->name} ({$user->email})");
 
             return response()->json([
@@ -447,8 +411,8 @@ class SuperAdminController extends Controller
                     'user_name'      => $user->name,
                     'user_email'     => $user->email,
                     'role'           => $user->role,
-                    'data_access'    => $user->data_access,
-                    'has_all_access' => in_array('crsd1', $user->data_access) && in_array('crsd2', $user->data_access),
+                    'data_access'    => $parsedAccess,
+                    'has_all_access' => in_array('crsd1', $parsedAccess) && in_array('crsd2', $parsedAccess),
                     'updated_at'     => $user->updated_at->format('Y-m-d H:i:s'),
                 ],
             ]);
@@ -543,13 +507,13 @@ class SuperAdminController extends Controller
                 'success' => true,
                 'message' => 'Access check completed',
                 'data'    => [
-                    'user_id'    => $user->id,
-                    'user_name'  => $user->name,
-                    'user_email' => $user->email,
-                    'user_role'  => $user->role,
-                    'data_type'  => $dataType,
-                    'has_access' => in_array($dataType, $dataAccess),
-                    'data_access'=> $dataAccess,
+                    'user_id'     => $user->id,
+                    'user_name'   => $user->name,
+                    'user_email'  => $user->email,
+                    'user_role'   => $user->role,
+                    'data_type'   => $dataType,
+                    'has_access'  => in_array($dataType, $dataAccess),
+                    'data_access' => $dataAccess,
                 ],
             ]);
         } catch (\Exception $e) {
@@ -569,10 +533,6 @@ class SuperAdminController extends Controller
             ],
         ]);
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  PASSWORD & ROLE
-    // ════════════════════════════════════════════════════════════════════════
 
     public function changeUserPassword(Request $request, $id)
     {
@@ -596,7 +556,12 @@ class SuperAdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Password pengguna berhasil diubah',
-                'data'    => ['id' => $user->id, 'name' => $user->name, 'email' => $user->email, 'password_changed_at' => now()->format('Y-m-d H:i:s')],
+                'data'    => [
+                    'id'                  => $user->id,
+                    'name'                => $user->name,
+                    'email'               => $user->email,
+                    'password_changed_at' => now()->format('Y-m-d H:i:s'),
+                ],
             ]);
 
         } catch (\Exception $e) {
@@ -648,7 +613,7 @@ class SuperAdminController extends Controller
                     'user_email'  => $user->email,
                     'old_role'    => $oldRole,
                     'new_role'    => $user->role,
-                    'data_access' => $user->data_access,
+                    'data_access' => $this->parseDataAccess($user->data_access),
                 ],
             ]);
         } catch (\Exception $e) {
@@ -656,10 +621,6 @@ class SuperAdminController extends Controller
             return response()->json(['success' => false, 'message' => 'Failed to change user role', 'error' => $e->getMessage()], 500);
         }
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  USER ACTIVITY & EXPORT
-    // ════════════════════════════════════════════════════════════════════════
 
     public function getUserActivity($id)
     {
@@ -696,10 +657,17 @@ class SuperAdminController extends Controller
                 return response()->json(['success' => false, 'message' => 'Unsupported export format'], 400);
             }
 
-            $users = User::when(!empty($role) && $role !== 'all', fn($q) => $q->where('role', $role))
-                ->when(!empty($dataAccess) && $dataAccess !== 'all', fn($q) => $this->applyDataAccessFilter($q, $dataAccess))
-                ->orderBy('created_at')
-                ->cursor();
+            $query = User::query();
+
+            if (!empty($role) && $role !== 'all') {
+                $query->where('role', $role);
+            }
+
+            if (!empty($dataAccess) && $dataAccess !== 'all') {
+                $this->applyDataAccessFilter($query, $dataAccess);
+            }
+
+            $users = $query->orderBy('created_at')->cursor();
 
             $filename = 'users_export_' . date('Y-m-d_His') . '.csv';
             $headers  = [
@@ -716,10 +684,14 @@ class SuperAdminController extends Controller
                 fputcsv($handle, ['ID', 'Nama', 'Email', 'Role', 'Divisi', 'Unit Kerja', 'CRSD 1', 'CRSD 2', 'Status', 'Dibuat']);
 
                 foreach ($users as $user) {
-                    $da = $user->data_access ?? [];
+                    $da = $this->parseDataAccess($user->data_access);
                     fputcsv($handle, [
-                        $user->id, $user->name, $user->email, $user->role,
-                        $user->divisi ?? '-', $user->unit_kerja ?? '-',
+                        $user->id,
+                        $user->name,
+                        $user->email,
+                        $user->role,
+                        $user->divisi    ?? '-',
+                        $user->unit_kerja ?? '-',
                         in_array('crsd1', $da) ? 'Ya' : 'Tidak',
                         in_array('crsd2', $da) ? 'Ya' : 'Tidak',
                         $user->email_verified_at ? 'Aktif' : 'Pending',
@@ -734,10 +706,6 @@ class SuperAdminController extends Controller
             return response()->json(['success' => false, 'message' => 'Failed to export users', 'error' => $e->getMessage()], 500);
         }
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  NOT IMPLEMENTED STUBS
-    // ════════════════════════════════════════════════════════════════════════
 
     public function getSettings()          { return $this->notImplemented(); }
     public function updateSettings()       { return $this->notImplemented(); }
@@ -756,10 +724,6 @@ class SuperAdminController extends Controller
     {
         return response()->json(['success' => false, 'message' => 'Endpoint not implemented'], 501);
     }
-
-    // ════════════════════════════════════════════════════════════════════════
-    //  PRIVATE HELPERS
-    // ════════════════════════════════════════════════════════════════════════
 
     private function applyDataAccessFilter($query, string $dataAccess)
     {
@@ -808,23 +772,23 @@ class SuperAdminController extends Controller
         $dataAccess = $this->parseDataAccess($user->data_access);
 
         return [
-            'id'              => $user->id,
-            'name'            => $user->name,
-            'email'           => $user->email,
-            'phone'           => $user->phone,
-            'role'            => $user->role,
-            'divisi'          => $user->divisi,
-            'unit_kerja'      => $user->unit_kerja,
-            'data_access'     => $dataAccess,
-            'has_crsd1_access'=> in_array('crsd1', $dataAccess),
-            'has_crsd2_access'=> in_array('crsd2', $dataAccess),
-            'has_both_access' => in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess),
-            'status'          => $user->email_verified_at ? 'aktif' : 'pending',
-            'email_verified_at' => $user->email_verified_at
+            'id'               => $user->id,
+            'name'             => $user->name,
+            'email'            => $user->email,
+            'phone'            => $user->phone,
+            'role'             => $user->role,
+            'divisi'           => $user->divisi,
+            'unit_kerja'       => $user->unit_kerja,
+            'data_access'      => $dataAccess,
+            'has_crsd1_access' => in_array('crsd1', $dataAccess),
+            'has_crsd2_access' => in_array('crsd2', $dataAccess),
+            'has_both_access'  => in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess),
+            'status'           => $user->email_verified_at ? 'aktif' : 'pending',
+            'email_verified_at'=> $user->email_verified_at
                 ? $user->email_verified_at->format('Y-m-d H:i:s')
                 : null,
-            'created_at'      => $user->created_at->format('Y-m-d H:i:s'),
-            'updated_at'      => $user->updated_at->format('Y-m-d H:i:s'),
+            'created_at'       => $user->created_at->format('Y-m-d H:i:s'),
+            'updated_at'       => $user->updated_at->format('Y-m-d H:i:s'),
         ];
     }
 
@@ -838,23 +802,10 @@ class SuperAdminController extends Controller
         }
         return [];
     }
+
     private function clearUserCache(): void
     {
         Cache::forget(self::CACHE_DASHBOARD);
         Cache::forget(self::CACHE_ADMINS_STATS);
-
-        $perPages = [5, 10, 15, 25, 50];
-        $sorts    = ['created_at', 'name', 'email', 'role', 'updated_at'];
-        $orders   = ['asc', 'desc'];
-
-        foreach ($perPages as $pp) {
-            foreach ($sorts as $s) {
-                foreach ($orders as $o) {
-                    for ($p = 1; $p <= 20; $p++) {
-                        Cache::forget("superadmin_users_list_{$p}_{$pp}_{$s}_{$o}");
-                    }
-                }
-            }
-        }
     }
 }
