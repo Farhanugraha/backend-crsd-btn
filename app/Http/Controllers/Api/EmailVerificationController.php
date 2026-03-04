@@ -7,46 +7,43 @@ use App\Mail\VerifyEmailMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\RateLimiter;
 use App\Models\User;
 
 class EmailVerificationController extends Controller
 {
-    /**
-     * Handle email verification when user clicks the link
-     */
-    public function verify($id, $hash)
+    private function frontendUrl(string $query = ''): string
+    {
+        $base = rtrim(config('app.frontend_url', 'http://localhost:3000'), '/');
+        return $base . '/auth/email-verify' . ($query ? '?' . $query : '');
+    }
+
+    public function verify(Request $request, $id, $hash)
     {
         try {
+            if (!$request->hasValidSignature()) {
+                return redirect($this->frontendUrl('success=false&message=' . urlencode('Link verifikasi tidak valid atau sudah kadaluarsa')));
+            }
+
             $user = User::findOrFail($id);
 
-            // Validate hash
-            if (!hash_equals(sha1($user->email), $hash)) {
-                $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
-                return redirect("{$frontendUrl}/auth/email-verify?success=false&message=Link%20verifikasi%20tidak%20valid");
+            if (!hash_equals(sha1($user->email), (string) $hash)) {
+                return redirect($this->frontendUrl('success=false&message=' . urlencode('Link verifikasi tidak valid')));
             }
 
-            // Check if already verified
             if ($user->hasVerifiedEmail()) {
-                $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
-                return redirect("{$frontendUrl}/auth/email-verify?success=true&already=verified");
+                return redirect($this->frontendUrl('success=true&already=verified'));
             }
 
-            // Mark email as verified
             $user->markEmailAsVerified();
 
-            // Redirect ke frontend - SESUAIKAN PATH
-            $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
-            return redirect("{$frontendUrl}/auth/email-verify?success=true");
+            return redirect($this->frontendUrl('success=true'));
 
         } catch (\Exception $e) {
-            $frontendUrl = config('app.frontend_url', 'http://localhost:3000');
-            return redirect("{$frontendUrl}/auth/email-verify?success=false&message=" . urlencode('Terjadi kesalahan saat verifikasi'));
+            return redirect($this->frontendUrl('success=false&message=' . urlencode('Terjadi kesalahan saat verifikasi')));
         }
     }
 
-    /**
-     * Resend verification email
-     */
     public function resend(Request $request)
     {
         try {
@@ -55,8 +52,8 @@ class EmailVerificationController extends Controller
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
+                    'message' => 'Unauthenticated'
+                ], 401);
             }
 
             if ($user->hasVerifiedEmail()) {
@@ -66,17 +63,28 @@ class EmailVerificationController extends Controller
                 ], 400);
             }
 
-            // Generate verification URL
+            $rateLimitKey = 'resend-verification:' . $user->id;
+
+            if (RateLimiter::tooManyAttempts($rateLimitKey, 3)) {
+                $seconds = RateLimiter::availableIn($rateLimitKey);
+                return response()->json([
+                    'success'    => false,
+                    'message'    => 'Terlalu banyak permintaan. Coba lagi dalam ' . $seconds . ' detik.',
+                    'retry_after' => $seconds
+                ], 429);
+            }
+
+            RateLimiter::hit($rateLimitKey, 300);
+
             $verificationUrl = URL::temporarySignedRoute(
                 'verification.verify',
                 now()->addHours(24),
                 [
-                    'id' => $user->id,
+                    'id'   => $user->id,
                     'hash' => sha1($user->email),
                 ]
             );
 
-            // Send email
             Mail::to($user->email)->send(new VerifyEmailMail($user, $verificationUrl));
 
             return response()->json([
@@ -88,14 +96,11 @@ class EmailVerificationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan saat mengirim email',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
 
-    /**
-     * Get verification status
-     */
     public function status(Request $request)
     {
         try {
@@ -104,16 +109,18 @@ class EmailVerificationController extends Controller
             if (!$user) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
+                    'message' => 'Unauthenticated'
+                ], 401);
             }
 
             return response()->json([
                 'success' => true,
-                'data' => [
+                'data'    => [
                     'is_verified' => $user->hasVerifiedEmail(),
-                    'email' => $user->email,
+                    'email'       => $user->email,
                     'verified_at' => $user->email_verified_at
+                        ? $user->email_verified_at->format('Y-m-d H:i:s')
+                        : null,
                 ]
             ], 200);
 
@@ -121,7 +128,7 @@ class EmailVerificationController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Terjadi kesalahan',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }

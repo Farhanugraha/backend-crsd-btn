@@ -6,47 +6,67 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\RateLimiter;
 
 class ResetPasswordController extends Controller
 {
     public function reset(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
-            'token' => 'required|string',
+            'email'    => 'required|email',
+            'token'    => 'required|string',
             'password' => 'required|min:6|confirmed',
         ]);
 
-        try {
-            $status = Password::reset(
-                $request->only('email', 'password', 'password_confirmation', 'token'),
-                function ($user, $password) {
-                    $user->forceFill([
-                        'password' => Hash::make($password)
-                    ])->save();
+        $rateLimitKey = 'reset-password:' . $request->ip();
 
-                    $user->setRememberToken(Str::random(60));
-                    $user->save();
-                }
-            );
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
+            $seconds = RateLimiter::availableIn($rateLimitKey);
+            return response()->json([
+                'success'     => false,
+                'message'     => 'Terlalu banyak percobaan. Coba lagi dalam ' . $seconds . ' detik.',
+                'retry_after' => $seconds
+            ], 429);
+        }
 
-            if ($status === Password::PASSWORD_RESET) {
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Password berhasil direset. Silakan login dengan password baru.'
-                ]);
+        RateLimiter::hit($rateLimitKey, 300);
+
+        $status = Password::reset(
+            $request->only('email', 'password', 'password_confirmation', 'token'),
+            function ($user, $password) {
+                $user->forceFill([
+                    'password'       => Hash::make($password),
+                    'remember_token' => null,
+                ])->save();
             }
+        );
 
-            throw ValidationException::withMessages([
-                'email' => [__($status)],
-            ]);
-        } catch (\Exception $e) {
+        if ($status === Password::PASSWORD_RESET) {
+            RateLimiter::clear($rateLimitKey);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password berhasil direset. Silakan login dengan password baru.'
+            ], 200);
+        }
+
+        if ($status === Password::INVALID_TOKEN) {
             return response()->json([
                 'success' => false,
-                'message' => 'Gagal mereset password: ' . $e->getMessage()
-            ], 500);
+                'message' => 'Token reset password tidak valid atau sudah kadaluarsa.'
+            ], 422);
         }
+
+        if ($status === Password::INVALID_USER) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Email tidak ditemukan.'
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'Gagal mereset password. Silakan coba lagi.'
+        ], 422);
     }
 }
