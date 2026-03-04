@@ -58,9 +58,9 @@ class Orders extends Model
     {
         return $this->belongsToMany(
             Area::class, 
-            'order_areas', // nama pivot table
-            'order_id',    // foreign key di pivot table untuk order
-            'area_id'      // foreign key di pivot table untuk area
+            'order_areas',
+            'order_id',    
+            'area_id'      
         )->withTimestamps();
     }
 

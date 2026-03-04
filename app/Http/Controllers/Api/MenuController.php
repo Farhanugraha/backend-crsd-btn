@@ -224,7 +224,6 @@ class MenuController extends Controller
                 ], 422);
             }
 
-            // Hanya ambil field yang diizinkan
             $updateData = [];
             
             if ($request->has('name')) {
@@ -232,15 +231,12 @@ class MenuController extends Controller
             }
             
             if ($request->has('price')) {
-                $updateData['price'] = (int) $request->price; // Cast ke integer
+                $updateData['price'] = (int) $request->price; 
             }
             
             if ($request->has('image')) {
-                // Store old image name untuk delete nanti
                 $oldImage = $menu->image;
                 $updateData['image'] = $request->image;
-                
-                // Delete old image if image is updated
                 if ($oldImage && $request->image !== $oldImage) {
                     if ($oldImage && Storage::disk('public')->exists('uploads/' . $oldImage)) {
                         Storage::disk('public')->delete('uploads/' . $oldImage);
