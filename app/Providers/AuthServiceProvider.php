@@ -2,46 +2,38 @@
 
 namespace App\Providers;
 
-use Illuminate\Auth\Events\Registered;
-use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Support\ServiceProvider;
-use App\Listeners\SendEmailVerificationNotification;
+use Illuminate\Auth\Notifications\ResetPassword;
+use Illuminate\Notifications\Messages\MailMessage;
 
 class AuthServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any authentication / authorization services.
-     */
     public function register(): void
     {
         //
     }
 
-    /**
-     * Bootstrap any authentication / authorization services.
-     */
     public function boot(): void
     {
-        // Reset Password URL
         ResetPassword::createUrlUsing(function ($user, string $token) {
-            $resetUrl = config('auth.frontend_reset_password_url');
+            $frontendUrl = config('auth.frontend_reset_password_url');
             $email = urlencode($user->email);
-            
-            return "{$resetUrl}?token={$token}&email={$email}";
+            return "{$frontendUrl}?token={$token}&email={$email}";
         });
 
-        // Event Listener untuk Email Verification
-        $this->registerEventListeners();
-    }
+        ResetPassword::toMailUsing(function ($notifiable, $token) {
+            $resetUrl = config('auth.frontend_reset_password_url')
+                . '?token=' . $token
+                . '&email=' . urlencode($notifiable->email);
 
-    /**
-     * Register event listeners
-     */
-    private function registerEventListeners(): void
-    {
-        \Illuminate\Support\Facades\Event::listen(
-            Registered::class,
-            SendEmailVerificationNotification::class
-        );
+            return (new MailMessage)
+                ->subject('Reset Password Akun CRSD OBBAMA')
+                ->greeting('Halo 👋')
+                ->line('Kami menerima permintaan untuk mereset password akun Anda.')
+                ->action('Reset Password', $resetUrl)
+                ->line('Link ini berlaku selama 60 menit.')
+                ->line('Jika Anda tidak merasa melakukan permintaan ini, abaikan email ini.')
+                ->salutation('Salam, Tim CRSD OBBAMA');
+        });
     }
 }

@@ -7,16 +7,43 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Validator;
 
 class ResetPasswordController extends Controller
 {
     public function reset(Request $request)
     {
-        $request->validate([
-            'email'    => 'required|email',
+        // Validasi dengan aturan yang lebih ketat
+        $validator = Validator::make($request->all(), [
+            'email'    => 'required|email|exists:users,email',
             'token'    => 'required|string',
-            'password' => 'required|min:6|confirmed',
+            'password' => [
+                'required',
+                'string',
+                'min:6',
+                'confirmed',
+                'regex:/[A-Z]/',      
+                'regex:/[a-z]/',      
+                'regex:/[0-9]/',      
+                'regex:/[@$!%*?&]/',  
+            ],
+        ], [
+            'email.required' => 'Email harus diisi',
+            'email.email' => 'Format email tidak valid',
+            'email.exists' => 'Email tidak ditemukan',
+            'token.required' => 'Token reset password diperlukan',
+            'password.required' => 'Password harus diisi',
+            'password.min' => 'Password minimal 6 karakter',
+            'password.confirmed' => 'Konfirmasi password tidak cocok',
+            'password.regex' => 'Password harus mengandung huruf besar, huruf kecil, angka, dan simbol (@$!%*?&)',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
 
         $rateLimitKey = 'reset-password:' . $request->ip();
 

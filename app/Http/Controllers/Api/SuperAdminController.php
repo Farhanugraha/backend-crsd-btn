@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Orders;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
@@ -135,24 +136,45 @@ class SuperAdminController extends Controller
         }
     }
 
-    public function createUser(Request $request)
+        public function createUser(Request $request)
     {
         try {
             $validator = Validator::make($request->all(), [
-                'name'                  => 'required|string|max:255',
+                'name'                  => 'required|string|max:255|regex:/^[a-zA-Z\s]+$/',
                 'email'                 => 'required|email|max:255|unique:users',
-                'password'              => ['required', 'min:6', 'confirmed', Password::defaults()],
-                'password_confirmation' => 'required|same:password',
-                'phone'                 => 'nullable|string|max:20',
-                'role'                  => 'required|in:user,admin,superadmin',
+                'password'              => [
+                    'required',
+                    'string',
+                    'min:6',
+                    'confirmed',
+                    'regex:/[A-Z]/',      
+                    'regex:/[a-z]/',      
+                    'regex:/[0-9]/',      
+                    'regex:/[@$!%*?&]/',  
+                ],
+                'password_confirmation' => 'required|string|same:password',
+                'phone'                 => 'nullable|string|max:20|regex:/^[0-9\s\-+()]{7,20}$/',
+                'role'                  => 'required|string|in:user,admin,superadmin',
                 'divisi'                => 'nullable|string|max:255',
                 'unit_kerja'            => 'nullable|string|max:100',
                 'data_access'           => 'nullable|array',
                 'data_access.*'         => 'string|in:crsd1,crsd2',
+            ], [
+                'name.regex' => 'Nama hanya boleh mengandung huruf dan spasi',
+                'password.regex' => 'Password harus mengandung huruf besar, huruf kecil, angka, dan simbol (@$!%*?&)',
+                'password.confirmed' => 'Konfirmasi password tidak cocok',
+                'password.min' => 'Password minimal 6 karakter',
+                'email.unique' => 'Email sudah terdaftar',
+                'phone.regex' => 'Nomor telepon tidak valid (7-20 digit)',
+                'data_access.*.in' => 'Data access harus berupa crsd1 atau crsd2',
             ]);
 
             if ($validator->fails()) {
-                return response()->json(['success' => false, 'message' => 'Validasi gagal', 'errors' => $validator->errors()], 422);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validasi gagal',
+                    'errors' => $validator->errors()
+                ], 422);
             }
 
             if ($request->role === 'admin' && empty($request->data_access)) {
@@ -165,14 +187,15 @@ class SuperAdminController extends Controller
 
             DB::beginTransaction();
 
+            /** @var array $userData */
             $userData = [
-                'name'              => $request->name,
-                'email'             => $request->email,
-                'password'          => Hash::make($request->password),
-                'phone'             => $request->phone,
-                'role'              => $request->role,
-                'divisi'            => $request->divisi,
-                'unit_kerja'        => $request->unit_kerja,
+                'name'              => (string) $request->name,
+                'email'             => (string) $request->email,
+                'password'          => Hash::make((string) $request->password),
+                'phone'             => $request->phone ? (string) $request->phone : null,
+                'role'              => (string) $request->role,
+                'divisi'            => $request->divisi ? (string) $request->divisi : null,
+                'unit_kerja'        => $request->unit_kerja ? (string) $request->unit_kerja : null,
                 'email_verified_at' => now(),
             ];
 
@@ -180,11 +203,22 @@ class SuperAdminController extends Controller
                 $userData['data_access'] = $request->data_access;
             }
 
+            /** @var User $user */
             $user = User::create($userData);
             DB::commit();
 
             $this->clearUserCache();
-            Log::info("User created: {$user->name} ({$user->email})");
+
+            /** @var User|null $adminUser */
+            $adminUser = Auth::user();
+
+            Log::info('User created by superadmin', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'created_by' => $adminUser ? $adminUser->id : null,
+                'role' => $user->role,
+                'timestamp' => now()->toDateTimeString()
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -192,13 +226,25 @@ class SuperAdminController extends Controller
                 'data'    => $this->formatUserResponse($user),
             ], 201);
 
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+            Log::error('Create User DB Error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Terjadi kesalahan database',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Create User Error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Gagal membuat pengguna', 'error' => $e->getMessage()], 500);
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal membuat pengguna',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
         }
     }
-
+    
     public function updateUser(Request $request, $id)
     {
         try {
@@ -534,39 +580,94 @@ class SuperAdminController extends Controller
         ]);
     }
 
-    public function changeUserPassword(Request $request, $id)
+     public function changeUserPassword(Request $request, $id)
     {
+        // Validasi input dengan aturan yang sama seperti register
+        $validator = Validator::make($request->all(), [
+            'password' => [
+                'required',
+                'string',
+                'min:6',
+                'confirmed',
+                'regex:/[A-Z]/',      // Harus mengandung huruf besar
+                'regex:/[a-z]/',      // Harus mengandung huruf kecil
+                'regex:/[0-9]/',      // Harus mengandung angka
+                'regex:/[@$!%*?&]/',  // Harus mengandung simbol
+            ],
+            'password_confirmation' => 'required|string|same:password',
+        ], [
+            'password.required' => 'Password harus diisi',
+            'password.min' => 'Password minimal 6 karakter',
+            'password.confirmed' => 'Konfirmasi password tidak cocok',
+            'password.regex' => 'Password harus mengandung huruf besar, huruf kecil, angka, dan simbol (@$!%*?&)',
+            'password_confirmation.required' => 'Konfirmasi password harus diisi',
+            'password_confirmation.same' => 'Konfirmasi password tidak cocok',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validasi gagal',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
         try {
-            $user = User::findOrFail($id);
-
-            $validator = Validator::make($request->all(), [
-                'password'              => ['required', 'min:6', 'confirmed', Password::defaults()],
-                'password_confirmation' => 'required|same:password',
-            ]);
-
-            if ($validator->fails()) {
-                return response()->json(['success' => false, 'message' => 'Validasi gagal', 'errors' => $validator->errors()], 422);
+            // Cari user
+            $user = User::find($id);
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User tidak ditemukan'
+                ], 404);
             }
 
+            // Optional: Cek apakah user adalah superadmin terakhir (jika perlu)
+            if ($user->role === 'superadmin') {
+                $superadminCount = User::where('role', 'superadmin')->count();
+                if ($superadminCount === 1) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Tidak dapat mengubah password superadmin terakhir'
+                    ], 400);
+                }
+            }
+
+            // Update password
             $user->password = Hash::make($request->password);
             $user->save();
 
-            Log::info("Password changed by superadmin for user: {$user->name} ({$user->email})");
+            // Log aktivitas
+            Log::info('Password changed by superadmin', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+               'changed_by' => optional(auth()->guard()->user())->id,
+                'changed_at' => now()->toDateTimeString()
+            ]);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Password pengguna berhasil diubah',
-                'data'    => [
-                    'id'                  => $user->id,
-                    'name'                => $user->name,
-                    'email'               => $user->email,
+                'data' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
                     'password_changed_at' => now()->format('Y-m-d H:i:s'),
                 ],
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Change Password Error: ' . $e->getMessage());
-            return response()->json(['success' => false, 'message' => 'Gagal mengubah password', 'error' => $e->getMessage()], 500);
+            Log::error('Change Password Error: ' . $e->getMessage(), [
+                'user_id' => $id,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengubah password',
+                'error' => config('app.debug') ? $e->getMessage() : 'Terjadi kesalahan internal'
+            ], 500);
         }
     }
 

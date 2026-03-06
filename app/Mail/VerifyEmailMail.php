@@ -13,8 +13,8 @@ class VerifyEmailMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public $user;
-    public $verificationUrl;
+    public User $user;
+    public string $verificationUrl;
 
     public function __construct(User $user, string $verificationUrl)
     {
@@ -25,156 +25,163 @@ class VerifyEmailMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Verifikasi Email Anda - CRSD BTN FOODER',
+            subject: 'Verifikasi Email Anda - CRSD OBBAMA',
         );
     }
 
     public function content(): Content
     {
         return new Content(
-            html: $this->generateHtmlTemplate(),
+            htmlString: $this->generateHtmlTemplate(),
         );
     }
 
     private function generateHtmlTemplate(): string
     {
-        $userName = $this->user->name;
-        $verifyLink = $this->verificationUrl;
-        $year = date('Y');
+        $userName   = htmlspecialchars($this->user->name, ENT_QUOTES, 'UTF-8');
+        $verifyLink = htmlspecialchars($this->verificationUrl, ENT_QUOTES, 'UTF-8');
+        $year       = date('Y');
+        $initials   = strtoupper(mb_substr($this->user->name, 0, 1));
 
-        return <<<HTML
-<!DOCTYPE html>
+        return '<!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verifikasi Email - CRSD BTN FOODER</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f3f4f6;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-        .header {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            padding: 40px 20px;
-            text-align: center;
-            color: white;
-        }
-        .header h1 {
-            font-size: 28px;
-            margin: 0 0 10px 0;
-            font-weight: 700;
-        }
-        .content {
-            padding: 40px 30px;
-        }
-        .greeting {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 20px;
-            color: #1f2937;
-        }
-        .message {
-            color: #4b5563;
-            font-size: 15px;
-            line-height: 1.8;
-            margin-bottom: 30px;
-        }
-        .button-container {
-            text-align: center;
-            margin: 35px 0;
-        }
-        .verify-button {
-            display: inline-block;
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-            padding: 14px 40px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 16px;
-        }
-        .link-text {
-            background-color: #f3f4f6;
-            border-left: 4px solid #10b981;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 20px 0;
-            word-break: break-all;
-            font-size: 13px;
-            color: #1f2937;
-            font-family: monospace;
-        }
-        .warning {
-            background-color: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 15px;
-            margin: 25px 0;
-            font-size: 14px;
-            color: #92400e;
-            border-radius: 4px;
-        }
-        .footer {
-            background-color: #f9fafb;
-            padding: 30px;
-            text-align: center;
-            border-top: 1px solid #e5e7eb;
-            font-size: 12px;
-            color: #6b7280;
-        }
-    </style>
+    <title>Verifikasi Email - CRSD OBBAMA</title>
 </head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🍔 CRSD BTN FOODER</h1>
-            <p>Verifikasi Email Anda</p>
-        </div>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
 
-        <div class="content">
-            <div class="greeting">Halo {$userName},</div>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f9;padding:40px 16px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
 
-            <div class="message">
-                <p>Terima kasih telah mendaftar di <strong>CRSD BTN FOODER</strong>! 🎉</p>
-                <p>Untuk menyelesaikan proses pendaftaran, silakan verifikasi email Anda dengan mengklik tombol di bawah:</p>
-            </div>
+    <!-- Card -->
+    <tr>
+        <td style="background-color:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
 
-            <div class="button-container">
-                <a href="{$verifyLink}" class="verify-button">Verifikasi Email</a>
-            </div>
+            <!-- Header -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td style="background-color:#0f766e;padding:32px 40px;">
+                        <table cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="width:48px;height:48px;background-color:rgba(255,255,255,0.2);border-radius:12px;text-align:center;vertical-align:middle;">
+                                    <span style="font-size:20px;font-weight:900;color:#ffffff;line-height:48px;display:block;">' . $initials . '</span>
+                                </td>
+                                <td style="padding-left:16px;vertical-align:middle;">
+                                    <p style="margin:0;font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1.5px;">Verifikasi Email</p>
+                                    <p style="margin:4px 0 0 0;font-size:20px;font-weight:700;color:#ffffff;">Halo, ' . $userName . '</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
 
-            <div class="message">
-                <p>Atau salin dan paste link berikut:</p>
-            </div>
+            <!-- Body -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td style="padding:36px 40px;">
 
-            <div class="link-text">{$verifyLink}</div>
+                        <!-- Intro -->
+                        <p style="margin:0 0 8px 0;font-size:16px;font-weight:700;color:#0f172a;">
+                            Konfirmasi alamat email Anda
+                        </p>
+                        <p style="margin:0 0 28px 0;font-size:14px;color:#64748b;line-height:1.7;">
+                            Terima kasih telah mendaftar di <strong style="color:#0f172a;">CRSD OBBAMA</strong>.
+                            Klik tombol di bawah untuk mengaktifkan akun Anda.
+                        </p>
 
-            <div class="warning">
-                <strong>⏰ Penting!</strong> Link berlaku selama <strong>24 jam</strong>
-            </div>
+                        <!-- CTA Button -->
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                            <tr>
+                                <td align="center" style="background-color:#0f766e;border-radius:10px;">
+                                    <a href="' . $verifyLink . '"
+                                       style="display:block;padding:15px 32px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;text-align:center;">
+                                        Verifikasi Email Sekarang
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
 
-            <div class="message">
-                <p>Jika Anda tidak melakukan pendaftaran ini, abaikan email ini.</p>
-            </div>
-        </div>
+                        <!-- Divider -->
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:20px;">
+                            <tr>
+                                <td style="border-top:1px solid #e2e8f0;"></td>
+                            </tr>
+                        </table>
 
-        <div class="footer">
-            <p>© {$year} CRSD BTN FOODER. Semua hak dilindungi.</p>
-        </div>
-    </div>
+                        <!-- Link Fallback -->
+                        <p style="margin:0 0 8px 0;font-size:12px;color:#94a3b8;">
+                            Tombol tidak berfungsi? Salin link berikut ke browser Anda:
+                        </p>
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                            <tr>
+                                <td style="background-color:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #0f766e;border-radius:6px;padding:12px 14px;">
+                                    <p style="margin:0;font-size:11px;color:#0f766e;word-break:break-all;font-family:Courier New,Courier,monospace;line-height:1.6;">' . $verifyLink . '</p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Warning -->
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+                            <tr>
+                                <td style="background-color:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;">
+                                    <p style="margin:0;font-size:13px;color:#92400e;">
+                                        <strong>Perhatian:</strong> Link ini berlaku selama <strong>24 jam</strong>.
+                                        Jika kadaluarsa, Anda perlu mendaftar ulang.
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Info Note -->
+                        <p style="margin:0;font-size:12px;color:#94a3b8;line-height:1.6;">
+                            Jika Anda tidak merasa mendaftar di CRSD OBBAMA, abaikan email ini.
+                            Akun tidak akan aktif tanpa verifikasi.
+                        </p>
+
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Footer -->
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                    <td style="background-color:#f8fafc;border-top:1px solid #e2e8f0;padding:18px 40px;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td>
+                                    <span style="font-size:12px;font-weight:700;color:#94a3b8;letter-spacing:1.5px;text-transform:uppercase;">CRSD OBBAMA</span>
+                                </td>
+                                <td align="right">
+                                    <span style="font-size:12px;color:#cbd5e1;">&copy; ' . $year . ' Semua hak dilindungi.</span>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+        </td>
+    </tr>
+
+    <!-- Bottom Note -->
+    <tr>
+        <td align="center" style="padding-top:20px;">
+            <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.6;">
+                Email ini dikirim secara otomatis, mohon tidak membalas pesan ini.
+            </p>
+        </td>
+    </tr>
+
+</table>
+</td></tr>
+</table>
+
 </body>
-</html>
-HTML;
+</html>';
     }
 
     public function attachments(): array

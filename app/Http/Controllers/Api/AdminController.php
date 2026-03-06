@@ -80,7 +80,7 @@ class AdminController extends Controller
                     $q->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
                 });
             } elseif (count($crsdAccess) === 1) {
-                $crsdType = reset($crsdAccess);
+                $crsdType   = reset($crsdAccess);
                 $divisiName = $crsdType === 'crsd1' ? 'CRSD 1' : 'CRSD 2';
 
                 return $query->whereHas('user', function ($q) use ($divisiName) {
@@ -191,43 +191,37 @@ class AdminController extends Controller
                 ], 403);
             }
 
-            $dataAccess = $this->getUserDataAccess();
+            $dataAccess    = $this->getUserDataAccess();
             $requestedCrsd = $request->query('crsd_type');
 
-            Log::info('===== DASHBOARD ACCESS =====');
-            Log::info('User: ' . $user->email . ', Role: ' . $user->role);
-            Log::info('Data Access: ' . json_encode($dataAccess));
-            Log::info('Requested CRSD: ' . ($requestedCrsd ?? 'null'));
-
-            $hasMultipleAccess = count($dataAccess) > 1;
+            $hasMultipleAccess       = count($dataAccess) > 1;
             $requiresModuleSelection = $hasMultipleAccess && !$requestedCrsd;
 
             if ($requiresModuleSelection) {
-                Log::info('Dashboard - User requires module selection - returning with default data');
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Silakan pilih module',
-                    'data_access' => $dataAccess,
-                    'user_role' => $user->role,
-                    'selected_module' => null,
-                    'requires_selection' => true,
+                    'success'                  => true,
+                    'message'                  => 'Silakan pilih module',
+                    'data_access'              => $dataAccess,
+                    'user_role'                => $user->role,
+                    'selected_module'          => null,
+                    'requires_selection'       => true,
                     'requires_module_selection' => true,
-                    'available_modules' => $dataAccess,
-                    'shows_all_crsd' => true,
+                    'available_modules'        => $dataAccess,
+                    'shows_all_crsd'           => true,
                     'data' => [
                         'orders' => [
-                            'total' => 0,
-                            'pending' => 0,
+                            'total'      => 0,
+                            'pending'    => 0,
                             'processing' => 0,
-                            'completed' => 0,
-                            'canceled' => 0,
+                            'completed'  => 0,
+                            'canceled'   => 0,
                         ],
                         'payments' => [
-                            'total_revenue' => 0,
+                            'total_revenue'    => 0,
                             'pending_payments' => 0,
                         ],
                         'users' => [
-                            'total_users' => 0,
+                            'total_users'  => 0,
                             'total_admins' => User::whereIn('role', ['admin', 'superadmin'])->count(),
                         ]
                     ]
@@ -236,16 +230,14 @@ class AdminController extends Controller
 
             if (!$requestedCrsd && count($dataAccess) === 1) {
                 $requestedCrsd = $dataAccess[0];
-                Log::info("Dashboard - Single access using default module: {$requestedCrsd}");
             }
 
             if (!$requestedCrsd) {
                 $requestedCrsd = 'general';
-                Log::info("Dashboard - Using general as default module");
             }
 
             $ordersQuery = Orders::query();
-            $this->applyCRSDFilterWithModule($ordersQuery, $requestedCrsd);
+            $ordersQuery = $this->applyCRSDFilterWithModule($ordersQuery, $requestedCrsd); // FIX: assign return value
 
             $orderStats = (clone $ordersQuery)->selectRaw('
                 COUNT(*) as total,
@@ -256,8 +248,8 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as total_revenue
             ')->first();
 
-            $totalOrders    = (int) ($orderStats->total ?? 0);
-            $pendingOrders  = (int) ($orderStats->pending ?? 0);
+            $totalOrders      = (int) ($orderStats->total ?? 0);
+            $pendingOrders    = (int) ($orderStats->pending ?? 0);
             $processingOrders = (int) ($orderStats->processing ?? 0);
             $completedOrders  = (int) ($orderStats->completed ?? 0);
             $canceledOrders   = (int) ($orderStats->canceled ?? 0);
@@ -297,7 +289,6 @@ class AdminController extends Controller
             } elseif ($requestedCrsd === 'crsd2') {
                 $usersQuery->where('divisi', 'CRSD 2');
             } elseif ($requestedCrsd === 'general' && $user->role === 'admin') {
-                $dataAccess = $this->getUserDataAccess();
                 if (in_array('crsd1', $dataAccess) && in_array('crsd2', $dataAccess)) {
                     $usersQuery->whereIn('divisi', ['CRSD 1', 'CRSD 2']);
                 } elseif (in_array('crsd1', $dataAccess)) {
@@ -311,29 +302,29 @@ class AdminController extends Controller
             $totalAdmins = User::whereIn('role', ['admin', 'superadmin'])->count();
 
             return response()->json([
-                'success' => true,
-                'message' => 'Admin dashboard loaded successfully',
-                'data_access' => $dataAccess,
-                'user_role' => $user->role,
-                'selected_module' => $requestedCrsd,
-                'requires_selection' => false,
+                'success'                  => true,
+                'message'                  => 'Admin dashboard loaded successfully',
+                'data_access'              => $dataAccess,
+                'user_role'                => $user->role,
+                'selected_module'          => $requestedCrsd,
+                'requires_selection'       => false,
                 'requires_module_selection' => false,
-                'available_modules' => $dataAccess,
-                'shows_all_crsd' => $hasMultipleAccess,
+                'available_modules'        => $dataAccess,
+                'shows_all_crsd'           => $hasMultipleAccess,
                 'data' => [
                     'orders' => [
-                        'total' => $totalOrders,
-                        'pending' => $pendingOrders,
+                        'total'      => $totalOrders,
+                        'pending'    => $pendingOrders,
                         'processing' => $processingOrders,
-                        'completed' => $completedOrders,
-                        'canceled' => $canceledOrders,
+                        'completed'  => $completedOrders,
+                        'canceled'   => $canceledOrders,
                     ],
                     'payments' => [
-                        'total_revenue' => $totalRevenue,
+                        'total_revenue'    => $totalRevenue,
                         'pending_payments' => $pendingPayments,
                     ],
                     'users' => [
-                        'total_users' => $totalUsers,
+                        'total_users'  => $totalUsers,
                         'total_admins' => $totalAdmins,
                     ]
                 ]
@@ -344,7 +335,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Gagal memuat dashboard',
-                'error' => $e->getMessage()
+                'error'   => $e->getMessage()
             ], 500);
         }
     }
@@ -359,10 +350,7 @@ class AdminController extends Controller
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return $this->errorResponse('Anda tidak memiliki akses', 403);
             }
 
             $startDateInput = $request->get('start_date');
@@ -408,10 +396,9 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_orders
             ')->whereBetween('created_at', [$startDate, $endDate]);
 
-            $this->applyCRSDFilterWithModule($mainStats, $requestedCrsd);
+            $mainStats = $this->applyCRSDFilterWithModule($mainStats, $requestedCrsd); // FIX
 
-            $mainStatsResult = $mainStats->first();
-
+            $mainStatsResult  = $mainStats->first();
             $totalOrders      = (int) ($mainStatsResult->total_orders ?? 0);
             $totalRevenue     = (int) ($mainStatsResult->total_revenue ?? 0);
             $completedOrders  = (int) ($mainStatsResult->completed_orders ?? 0);
@@ -429,14 +416,12 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as revenue
             ')->whereBetween('created_at', [$todayStart, $todayEnd]);
 
-            $this->applyCRSDFilterWithModule($todayStats, $requestedCrsd);
-
+            $todayStats   = $this->applyCRSDFilterWithModule($todayStats, $requestedCrsd); // FIX
             $todayResult  = $todayStats->first();
             $todayOrders  = (int) ($todayResult->orders ?? 0);
             $todayRevenue = (int) ($todayResult->revenue ?? 0);
 
-            $periodDays = $startDate->diffInDays($endDate) + 1;
-
+            $periodDays          = $startDate->diffInDays($endDate) + 1;
             $previousPeriodStart = (clone $startDate)->subDays($periodDays)->startOfDay();
             $previousPeriodEnd   = (clone $startDate)->subDay()->endOfDay();
 
@@ -445,9 +430,8 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as total_revenue
             ')->whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd]);
 
-            $this->applyCRSDFilterWithModule($previousStats, $requestedCrsd);
-
-            $previousResult       = $previousStats->first();
+            $previousStats         = $this->applyCRSDFilterWithModule($previousStats, $requestedCrsd); // FIX
+            $previousResult        = $previousStats->first();
             $previousPeriodRevenue = (int) ($previousResult->total_revenue ?? 0);
             $previousPeriodOrders  = (int) ($previousResult->total_orders ?? 0);
 
@@ -471,8 +455,7 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as revenue
             ')->whereBetween('created_at', [$startDate, $endDate]);
 
-            $this->applyCRSDFilterWithModule($chartQuery, $requestedCrsd);
-
+            $chartQuery      = $this->applyCRSDFilterWithModule($chartQuery, $requestedCrsd); // FIX
             $chartResults    = $chartQuery->groupBy(DB::raw('DATE(created_at)'))->orderBy('date')->get();
             $chartResultsMap = $chartResults->keyBy('date');
 
@@ -495,7 +478,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Statistik berhasil dimuat',
-                'data' => [
+                'data'    => [
                     'totalOrders'       => $totalOrders,
                     'totalRevenue'      => $totalRevenue,
                     'completedOrders'   => $completedOrders,
@@ -509,9 +492,9 @@ class AdminController extends Controller
                     'orderGrowth'       => round($orderGrowth, 2),
                     'chartData'         => $chartData,
                     'periodInfo'        => [
-                        'start_date' => $startDate->format('Y-m-d'),
-                        'end_date'   => $endDate->format('Y-m-d'),
-                        'days'       => $periodDays,
+                        'start_date'      => $startDate->format('Y-m-d'),
+                        'end_date'        => $endDate->format('Y-m-d'),
+                        'days'            => $periodDays,
                         'previous_period' => [
                             'start_date' => $previousPeriodStart->format('Y-m-d'),
                             'end_date'   => $previousPeriodEnd->format('Y-m-d')
@@ -547,35 +530,27 @@ class AdminController extends Controller
             $crsdType       = $request->query('crsd_type');
             $dataAccess     = $this->getUserDataAccess();
 
-            Log::info('===== REPORTS ACCESS =====');
-            Log::info('User: ' . $user->email . ', Role: ' . $user->role);
-            Log::info('Data Access: ' . json_encode($dataAccess));
-            Log::info('Requested CRSD: ' . ($crsdType ?? 'null'));
-
             $hasMultipleAccess       = count($dataAccess) > 1;
             $requiresModuleSelection = $hasMultipleAccess && !$crsdType;
 
             if ($requiresModuleSelection) {
-                Log::info('Reports - User requires module selection');
                 return response()->json([
-                    'success'          => true,
-                    'message'          => 'Silakan pilih module terlebih dahulu',
+                    'success'            => true,
+                    'message'            => 'Silakan pilih module terlebih dahulu',
                     'requires_selection' => true,
                     'available_modules'  => $dataAccess,
-                    'data'             => null
+                    'data'               => null
                 ], 200);
             }
 
             if ($user->role === 'admin' && $crsdType && $crsdType !== 'general') {
                 if (!in_array($crsdType, $dataAccess)) {
-                    Log::warning("getReports - Admin attempted to access unauthorized module: {$crsdType}");
                     return $this->errorResponse('Anda tidak memiliki akses ke modul ini', 403);
                 }
             }
 
             if ($user->role === 'admin' && !$crsdType && count($dataAccess) === 1) {
                 $crsdType = $dataAccess[0];
-                Log::info("getReports - Admin with single access using default module: {$crsdType}");
             }
 
             if ($user->role === 'superadmin' && (!$crsdType || $crsdType === 'general')) {
@@ -598,10 +573,7 @@ class AdminController extends Controller
                 ->where('order_status', 'completed')
                 ->where('status', 'paid');
 
-            $this->applyCRSDFilterWithModule($baseQuery, $crsdType);
-
-            Log::info('Reports SQL: ' . $baseQuery->toSql());
-            Log::info('Reports Bindings: ' . json_encode($baseQuery->getBindings()));
+            $baseQuery = $this->applyCRSDFilterWithModule($baseQuery, $crsdType); // FIX
 
             if ($request->has('area_id') && $request->area_id !== 'all') {
                 $areaId = $request->area_id;
@@ -620,12 +592,7 @@ class AdminController extends Controller
             $totalOrders  = $baseQuery->count();
             $totalRevenue = (int) $baseQuery->sum('total_price');
 
-            Log::info('Reports Total Orders: ' . $totalOrders);
-            Log::info('Reports Total Revenue: ' . $totalRevenue);
-
             $orders = (clone $baseQuery)->orderBy('created_at', 'desc')->get();
-
-            Log::info('Reports Orders Count: ' . $orders->count());
 
             $orders->each(function ($order) use ($crsdType) {
                 $order->crsd_type = $crsdType ?? ($order->user->divisi === 'CRSD 1' ? 'crsd1' : 'crsd2');
@@ -650,20 +617,20 @@ class AdminController extends Controller
                     }
                 }
 
-                $allRestaurants = array_values($allRestaurants);
-                $allAreas       = array_values($allAreas);
+                $allRestaurants  = array_values($allRestaurants);
+                $allAreas        = array_values($allAreas);
                 $firstRestaurant = !empty($allRestaurants) ? $allRestaurants[0] : null;
                 $firstArea       = !empty($allAreas) ? $allAreas[0] : null;
 
-                $order->restaurant       = $firstRestaurant;
-                $order->area             = $firstArea;
-                $order->area_name        = $firstArea ? $firstArea->name : 'Multiple Areas';
-                $order->area_icon        = $firstArea ? $firstArea->icon : '📍';
-                $order->all_restaurants  = $allRestaurants;
-                $order->all_areas        = $allAreas;
+                $order->restaurant        = $firstRestaurant;
+                $order->area              = $firstArea;
+                $order->area_name         = $firstArea ? $firstArea->name : 'Multiple Areas';
+                $order->area_icon         = $firstArea ? $firstArea->icon : '📍';
+                $order->all_restaurants   = $allRestaurants;
+                $order->all_areas         = $allAreas;
                 $order->restaurants_count = count($allRestaurants);
-                $order->areas_count      = count($allAreas);
-                $order->items_count      = $order->items->count();
+                $order->areas_count       = count($allAreas);
+                $order->items_count       = $order->items->count();
             });
 
             return response()->json([
@@ -675,12 +642,12 @@ class AdminController extends Controller
                             'start_date' => $startDate->format('Y-m-d'),
                             'end_date'   => $endDate->format('Y-m-d'),
                         ],
-                        'total_orders'       => $totalOrders,
-                        'total_revenue'      => $totalRevenue,
-                        'completed_orders'   => $totalOrders,
-                        'processing_orders'  => 0,
-                        'pending_orders'     => 0,
-                        'canceled_orders'    => 0,
+                        'total_orders'        => $totalOrders,
+                        'total_revenue'       => $totalRevenue,
+                        'completed_orders'    => $totalOrders,
+                        'processing_orders'   => 0,
+                        'pending_orders'      => 0,
+                        'canceled_orders'     => 0,
                         'average_order_value' => $totalOrders > 0 ? (int) ($totalRevenue / $totalOrders) : 0,
                     ],
                     'orders' => $orders,
@@ -690,7 +657,6 @@ class AdminController extends Controller
         } catch (\Exception $e) {
             Log::error('getReports error: ' . $e->getMessage());
             Log::error($e->getTraceAsString());
-
             return $this->errorResponse('Gagal mengambil laporan: ' . $e->getMessage(), 500);
         }
     }
@@ -713,16 +679,10 @@ class AdminController extends Controller
             $crsdType       = $request->query('crsd_type');
             $dataAccess     = $this->getUserDataAccess();
 
-            Log::info('===== ORDERS DETAIL ACCESS =====');
-            Log::info('User: ' . $user->email . ', Role: ' . $user->role);
-            Log::info('Data Access: ' . json_encode($dataAccess));
-            Log::info('Requested CRSD: ' . ($crsdType ?? 'null'));
-
             $hasMultipleAccess       = count($dataAccess) > 1;
             $requiresModuleSelection = $hasMultipleAccess && !$crsdType;
 
             if ($requiresModuleSelection) {
-                Log::info('Orders Detail - User requires module selection');
                 return response()->json([
                     'success'            => true,
                     'message'            => 'Silakan pilih module terlebih dahulu',
@@ -734,14 +694,12 @@ class AdminController extends Controller
 
             if ($user->role === 'admin' && $crsdType && $crsdType !== 'general') {
                 if (!in_array($crsdType, $dataAccess)) {
-                    Log::warning("getOrdersDetail - Admin attempted to access unauthorized module: {$crsdType}");
                     return $this->errorResponse('Anda tidak memiliki akses ke modul ini', 403);
                 }
             }
 
             if ($user->role === 'admin' && !$crsdType && count($dataAccess) === 1) {
                 $crsdType = $dataAccess[0];
-                Log::info("getOrdersDetail - Admin with single access using default module: {$crsdType}");
             }
 
             if ($user->role === 'superadmin' && (!$crsdType || $crsdType === 'general')) {
@@ -765,10 +723,7 @@ class AdminController extends Controller
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc');
 
-            $this->applyCRSDFilterWithModule($query, $crsdType);
-
-            Log::info('Orders Detail SQL: ' . $query->toSql());
-            Log::info('Orders Detail Bindings: ' . json_encode($query->getBindings()));
+            $query = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
 
             if ($request->has('search')) {
                 $search = $request->search;
@@ -783,7 +738,6 @@ class AdminController extends Controller
             }
 
             $orders = $query->get();
-            Log::info('Orders Detail Count: ' . $orders->count());
 
             $ordersByDate    = [];
             $cumulativeTotal = 0;
@@ -841,29 +795,26 @@ class AdminController extends Controller
                 ];
             }
 
-            $responseData = [
-                'period' => [
-                    'start_date' => $startDate->format('Y-m-d'),
-                    'end_date'   => $endDate->format('Y-m-d'),
-                ],
-                'summary' => [
-                    'total_orders'       => $orders->count(),
-                    'total_revenue'      => $totalRevenue,
-                    'average_order_value' => $orders->count() > 0 ? (int) ($totalRevenue / $orders->count()) : 0,
-                ],
-                'orders_by_date' => $formattedOrdersByDate
-            ];
-
             return response()->json([
                 'success' => true,
                 'message' => 'Orders detail retrieved successfully',
-                'data'    => $responseData
+                'data'    => [
+                    'period' => [
+                        'start_date' => $startDate->format('Y-m-d'),
+                        'end_date'   => $endDate->format('Y-m-d'),
+                    ],
+                    'summary' => [
+                        'total_orders'        => $orders->count(),
+                        'total_revenue'       => $totalRevenue,
+                        'average_order_value' => $orders->count() > 0 ? (int) ($totalRevenue / $orders->count()) : 0,
+                    ],
+                    'orders_by_date' => $formattedOrdersByDate
+                ]
             ], 200);
 
         } catch (\Exception $e) {
             Log::error('getOrdersDetail error: ' . $e->getMessage());
             Log::error($e->getTraceAsString());
-
             return $this->errorResponse('Gagal mengambil detail orders: ' . $e->getMessage(), 500);
         }
     }
@@ -903,8 +854,7 @@ class AdminController extends Controller
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc');
 
-            $this->applyCRSDFilterWithModule($query, $crsdType);
-
+            $query  = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
             $orders = $query->get();
 
             if ($orders->isEmpty()) {
@@ -912,10 +862,6 @@ class AdminController extends Controller
             }
 
             $exportData = $orders->map(function ($order) {
-                Log::info('Export Order - ID: ' . $order->id .
-                    ', Order Status: ' . $order->order_status .
-                    ', Payment Status: ' . $order->status);
-
                 return [
                     'Order ID'        => $order->id,
                     'Order Code'      => $order->order_code,
@@ -934,23 +880,23 @@ class AdminController extends Controller
             });
 
             $summaryData = [
-                'Period'         => $startDate->format('Y-m-d') . ' to ' . $endDate->format('Y-m-d'),
-                'Total Orders'   => $orders->count(),
-                'Total Revenue'  => (int) $orders->sum('total_price'),
+                'Period'           => $startDate->format('Y-m-d') . ' to ' . $endDate->format('Y-m-d'),
+                'Total Orders'     => $orders->count(),
+                'Total Revenue'    => (int) $orders->sum('total_price'),
                 'Completed Orders' => $orders->count(),
-                'Pending Orders' => 0,
-                'Canceled Orders' => 0,
+                'Pending Orders'   => 0,
+                'Canceled Orders'  => 0,
             ];
 
             return response()->json([
-                'success'     => true,
-                'message'     => 'Export data ready',
-                'data'        => [
+                'success'      => true,
+                'message'      => 'Export data ready',
+                'data'         => [
                     'summary' => $summaryData,
                     'orders'  => $exportData,
                 ],
-                'export_type' => $exportType,
-                'filename'    => 'orders_export_' . $startDate->format('Ymd') . '_to_' . $endDate->format('Ymd') . '.json',
+                'export_type'  => $exportType,
+                'filename'     => 'orders_export_' . $startDate->format('Ymd') . '_to_' . $endDate->format('Ymd') . '.json',
                 'download_url' => $exportType === 'excel'
                     ? url("/api/admin/export/excel?start_date={$startDateInput}&end_date={$endDateInput}")
                     : null
@@ -968,17 +914,11 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             $dataAccess = $this->getUserDataAccess();
@@ -1018,17 +958,11 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             $validator = Validator::make($request->all(), [
@@ -1075,17 +1009,11 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             $crsdType = $request->query('crsd_type');
@@ -1095,7 +1023,7 @@ class AdminController extends Controller
                 'items.menu.restaurant.area'
             ])->orderBy('created_at', 'desc');
 
-            $this->applyCRSDFilterWithModule($query, $crsdType);
+            $query = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
 
             if ($request->has('status') && $request->status !== 'all') {
                 $query->where('order_status', $request->status);
@@ -1144,7 +1072,7 @@ class AdminController extends Controller
             $orders = $query->get();
 
             $orders->each(function ($order) {
-                $divisi = $order->user->divisi ?? null;
+                $divisi           = $order->user->divisi ?? null;
                 $order->crsd_type = $divisi === 'CRSD 1' ? 'crsd1' : ($divisi === 'CRSD 2' ? 'crsd2' : null);
 
                 $allRestaurants = [];
@@ -1205,24 +1133,15 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tipe CRSD tidak valid'
-                ], 400);
+                return response()->json(['success' => false, 'message' => 'Tipe CRSD tidak valid'], 400);
             }
 
             if ($user->role === 'admin') {
@@ -1351,17 +1270,11 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             $page    = $request->get('page', 1);
@@ -1422,24 +1335,15 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             if (!in_array($crsdType, ['crsd1', 'crsd2'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tipe CRSD tidak valid'
-                ], 400);
+                return response()->json(['success' => false, 'message' => 'Tipe CRSD tidak valid'], 400);
             }
 
             if ($user->role === 'admin') {
@@ -1487,47 +1391,31 @@ class AdminController extends Controller
     public function showUser($id)
     {
         try {
-            $user = User::find($id);
-
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
-            }
-
+            $user     = User::find($id);
             $authUser = auth()->guard('api')->user();
 
             if (!$authUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+            }
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
             }
 
             if ($authUser->role === 'admin' && $user->role !== 'user') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             if ($authUser->role === 'admin' && $user->role === 'user') {
-                $dataAccess  = $this->getUserDataAccess();
-                $userDivisi  = $user->divisi;
+                $dataAccess = $this->getUserDataAccess();
+                $userDivisi = $user->divisi;
 
                 if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
 
                 if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
             }
 
@@ -1550,29 +1438,19 @@ class AdminController extends Controller
     public function updateUser(Request $request, $id)
     {
         try {
-            $user = User::find($id);
-
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
-            }
-
+            $user     = User::find($id);
             $authUser = auth()->guard('api')->user();
 
             if (!$authUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+            }
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
             }
 
             if ($authUser->role === 'admin' && $user->role !== 'user') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak bisa mengubah user ini'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak bisa mengubah user ini'], 403);
             }
 
             if ($authUser->role === 'admin' && $user->role === 'user') {
@@ -1580,32 +1458,20 @@ class AdminController extends Controller
                 $userDivisi = $user->divisi;
 
                 if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
 
                 if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
 
                 if ($request->has('divisi')) {
                     $newDivisi = $request->divisi;
                     if ($newDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Anda hanya dapat mengubah user divisi CRSD 1'
-                        ], 403);
+                        return response()->json(['success' => false, 'message' => 'Anda hanya dapat mengubah user divisi CRSD 1'], 403);
                     }
                     if ($newDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Anda hanya dapat mengubah user divisi CRSD 2'
-                        ], 403);
+                        return response()->json(['success' => false, 'message' => 'Anda hanya dapat mengubah user divisi CRSD 2'], 403);
                     }
                 }
             }
@@ -1637,7 +1503,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User updated successfully',
-                'data'    => $user
+                'data'    => $user->fresh()
             ], 200);
 
         } catch (\Exception $e) {
@@ -1653,29 +1519,19 @@ class AdminController extends Controller
     public function deleteUser($id)
     {
         try {
-            $user = User::find($id);
-
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
-            }
-
+            $user     = User::find($id);
             $authUser = auth()->guard('api')->user();
 
             if (!$authUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+            }
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
             }
 
             if ($authUser->role === 'admin' && $user->role !== 'user') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak bisa menghapus user ini'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak bisa menghapus user ini'], 403);
             }
 
             if ($authUser->role === 'admin' && $user->role === 'user') {
@@ -1683,17 +1539,11 @@ class AdminController extends Controller
                 $userDivisi = $user->divisi;
 
                 if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
 
                 if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
             }
 
@@ -1717,29 +1567,19 @@ class AdminController extends Controller
     public function deactivateUser($id)
     {
         try {
-            $user = User::find($id);
-
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
-            }
-
+            $user     = User::find($id);
             $authUser = auth()->guard('api')->user();
 
             if (!$authUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+            }
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
             }
 
             if ($authUser->role === 'admin' && $user->role !== 'user') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak bisa menonaktifkan user ini'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak bisa menonaktifkan user ini'], 403);
             }
 
             if ($authUser->role === 'admin' && $user->role === 'user') {
@@ -1747,17 +1587,11 @@ class AdminController extends Controller
                 $userDivisi = $user->divisi;
 
                 if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
 
                 if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
             }
 
@@ -1766,7 +1600,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User deactivated successfully',
-                'data'    => $user
+                'data'    => $user->fresh()
             ], 200);
 
         } catch (\Exception $e) {
@@ -1782,29 +1616,19 @@ class AdminController extends Controller
     public function activateUser($id)
     {
         try {
-            $user = User::find($id);
-
-            if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'User tidak ditemukan'
-                ], 404);
-            }
-
+            $user     = User::find($id);
             $authUser = auth()->guard('api')->user();
 
             if (!$authUser) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
+            }
+
+            if (!$user) {
+                return response()->json(['success' => false, 'message' => 'User tidak ditemukan'], 404);
             }
 
             if ($authUser->role === 'admin' && $user->role !== 'user') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak bisa mengaktifkan user ini'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak bisa mengaktifkan user ini'], 403);
             }
 
             if ($authUser->role === 'admin' && $user->role === 'user') {
@@ -1812,17 +1636,11 @@ class AdminController extends Controller
                 $userDivisi = $user->divisi;
 
                 if ($userDivisi === 'CRSD 1' && !in_array('crsd1', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
 
                 if ($userDivisi === 'CRSD 2' && !in_array('crsd2', $dataAccess)) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Anda tidak memiliki akses ke user ini'
-                    ], 403);
+                    return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses ke user ini'], 403);
                 }
             }
 
@@ -1831,7 +1649,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User activated successfully',
-                'data'    => $user
+                'data'    => $user->fresh()
             ], 200);
 
         } catch (\Exception $e) {
@@ -1850,17 +1668,11 @@ class AdminController extends Controller
             $user = auth()->guard('api')->user();
 
             if (!$user) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthenticated'
-                ], 401);
+                return response()->json(['success' => false, 'message' => 'Unauthenticated'], 401);
             }
 
             if (!in_array($user->role, ['admin', 'superadmin'])) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Anda tidak memiliki akses'
-                ], 403);
+                return response()->json(['success' => false, 'message' => 'Anda tidak memiliki akses'], 403);
             }
 
             $startDateInput = $request->get('start_date', now()->subMonth()->toDateString());
@@ -1872,16 +1684,10 @@ class AdminController extends Controller
                 $endDate   = Carbon::parse($endDateInput)->endOfDay();
 
                 if ($startDate > $endDate) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'
-                    ], 400);
+                    return response()->json(['success' => false, 'message' => 'Tanggal awal harus lebih kecil dari tanggal akhir'], 400);
                 }
             } catch (\Exception $e) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Format tanggal tidak valid'
-                ], 400);
+                return response()->json(['success' => false, 'message' => 'Format tanggal tidak valid'], 400);
             }
 
             $query = Orders::with(['user', 'items.menu'])
@@ -1890,31 +1696,18 @@ class AdminController extends Controller
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc');
 
-            $this->applyCRSDFilterWithModule($query, $crsdType);
-
+            $query  = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
             $orders = $query->get();
 
             if ($orders->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tidak ada data untuk diekspor'
-                ], 404);
+                return response()->json(['success' => false, 'message' => 'Tidak ada data untuk diekspor'], 404);
             }
 
-            $csvData = [];
-
+            $csvData   = [];
             $csvData[] = [
-                'Order ID',
-                'Order Code',
-                'Customer Name',
-                'Customer Email',
-                'Customer Divisi',
-                'Order Status',
-                'Payment Status',
-                'Total Amount',
-                'Order Date',
-                'Items Count',
-                'Items'
+                'Order ID', 'Order Code', 'Customer Name', 'Customer Email',
+                'Customer Divisi', 'Order Status', 'Payment Status',
+                'Total Amount', 'Order Date', 'Items Count', 'Items'
             ];
 
             foreach ($orders as $order) {
@@ -1929,9 +1722,7 @@ class AdminController extends Controller
                     (int) $order->total_price,
                     $order->created_at->format('Y-m-d H:i:s'),
                     $order->items->count(),
-                    $order->items->map(function ($item) {
-                        return $item->menu?->name ?? 'Unknown Product';
-                    })->implode(', ')
+                    $order->items->map(fn($item) => $item->menu?->name ?? 'Unknown Product')->implode(', ')
                 ];
             }
 
