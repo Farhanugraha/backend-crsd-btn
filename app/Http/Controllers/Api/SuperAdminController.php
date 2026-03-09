@@ -27,10 +27,10 @@ class SuperAdminController extends Controller
             $stats = Cache::remember(self::CACHE_DASHBOARD, self::CACHE_DURATION_SHORT, function () {
                 $orderStats = Orders::selectRaw('
                     COUNT(*) as total_orders,
-                    SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as today_orders,
+                    SUM(CASE WHEN DATE(created_at) = CURDATE() AND status = "paid" THEN 1 ELSE 0 END) as today_orders,
                     SUM(CASE WHEN DATE(created_at) = CURDATE() AND order_status = "processing" THEN 1 ELSE 0 END) as today_processing,
-                    SUM(CASE WHEN DATE(created_at) = CURDATE() AND order_status = "completed"  THEN 1 ELSE 0 END) as today_completed,
-                    SUM(CASE WHEN DATE(created_at) = CURDATE() AND order_status = "canceled"   THEN 1 ELSE 0 END) as today_canceled
+                    SUM(CASE WHEN DATE(created_at) = CURDATE() AND order_status = "completed" AND status = "paid" THEN 1 ELSE 0 END) as today_completed,
+                    SUM(CASE WHEN DATE(created_at) = CURDATE() AND (order_status = "canceled" OR status = "canceled") THEN 1 ELSE 0 END) as today_canceled
                 ')->first();
 
                 $userStats = User::selectRaw('
