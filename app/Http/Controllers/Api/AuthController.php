@@ -93,22 +93,28 @@ class AuthController extends Controller
         try {
             $credentials = $request->only('email', 'password');
 
-            if (!$token = JWTAuth::attempt($credentials)) {
+            // Cek user dulu sebelum attempt
+            $user = User::where('email', $credentials['email'])->first();
+
+            if (!$user || !Hash::check($credentials['password'], $user->password)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Email atau password salah'
                 ], 401);
             }
 
-            $user = JWTAuth::user();
-
             if (!$user->hasVerifiedEmail()) {
-                JWTAuth::invalidate(JWTAuth::getToken());
-
                 return response()->json([
                     'success' => false,
                     'message' => 'Silakan verifikasi email terlebih dahulu'
                 ], 403);
+            }
+
+            if (!$token = JWTAuth::attempt($credentials)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Email atau password salah'
+                ], 401);
             }
 
             return response()->json([
