@@ -317,7 +317,7 @@ class RestaurantController extends Controller
                 ], 404);
             }
 
-            // Check if restaurant has menus
+            
             if ($restaurant->menus()->count() > 0) {
                 return response()->json([
                     'success' => false,
@@ -414,7 +414,6 @@ class RestaurantController extends Controller
                 ->where('is_open', true)
                 ->where('name', 'LIKE', "%{$query}%");
 
-            // Filter by area if provided
             if ($areaId) {
                 $restaurantsQuery->where('area_id', $areaId);
             }

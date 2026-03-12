@@ -199,15 +199,15 @@ class AdminController extends Controller
 
             if ($requiresModuleSelection) {
                 return response()->json([
-                    'success'                  => true,
-                    'message'                  => 'Silakan pilih module',
-                    'data_access'              => $dataAccess,
-                    'user_role'                => $user->role,
-                    'selected_module'          => null,
-                    'requires_selection'       => true,
+                    'success'                   => true,
+                    'message'                   => 'Silakan pilih module',
+                    'data_access'               => $dataAccess,
+                    'user_role'                 => $user->role,
+                    'selected_module'           => null,
+                    'requires_selection'        => true,
                     'requires_module_selection' => true,
-                    'available_modules'        => $dataAccess,
-                    'shows_all_crsd'           => true,
+                    'available_modules'         => $dataAccess,
+                    'shows_all_crsd'            => true,
                     'data' => [
                         'orders' => [
                             'total'      => 0,
@@ -237,7 +237,7 @@ class AdminController extends Controller
             }
 
             $ordersQuery = Orders::query();
-            $ordersQuery = $this->applyCRSDFilterWithModule($ordersQuery, $requestedCrsd); // FIX: assign return value
+            $ordersQuery = $this->applyCRSDFilterWithModule($ordersQuery, $requestedCrsd);
 
             $orderStats = (clone $ordersQuery)->selectRaw('
                 COUNT(*) as total,
@@ -302,15 +302,15 @@ class AdminController extends Controller
             $totalAdmins = User::whereIn('role', ['admin', 'superadmin'])->count();
 
             return response()->json([
-                'success'                  => true,
-                'message'                  => 'Admin dashboard loaded successfully',
-                'data_access'              => $dataAccess,
-                'user_role'                => $user->role,
-                'selected_module'          => $requestedCrsd,
-                'requires_selection'       => false,
+                'success'                   => true,
+                'message'                   => 'Admin dashboard loaded successfully',
+                'data_access'               => $dataAccess,
+                'user_role'                 => $user->role,
+                'selected_module'           => $requestedCrsd,
+                'requires_selection'        => false,
                 'requires_module_selection' => false,
-                'available_modules'        => $dataAccess,
-                'shows_all_crsd'           => $hasMultipleAccess,
+                'available_modules'         => $dataAccess,
+                'shows_all_crsd'            => $hasMultipleAccess,
                 'data' => [
                     'orders' => [
                         'total'      => $totalOrders,
@@ -396,7 +396,7 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_orders
             ')->whereBetween('created_at', [$startDate, $endDate]);
 
-            $mainStats = $this->applyCRSDFilterWithModule($mainStats, $requestedCrsd); // FIX
+            $mainStats = $this->applyCRSDFilterWithModule($mainStats, $requestedCrsd);
 
             $mainStatsResult  = $mainStats->first();
             $totalOrders      = (int) ($mainStatsResult->total_orders ?? 0);
@@ -416,7 +416,7 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as revenue
             ')->whereBetween('created_at', [$todayStart, $todayEnd]);
 
-            $todayStats   = $this->applyCRSDFilterWithModule($todayStats, $requestedCrsd); // FIX
+            $todayStats   = $this->applyCRSDFilterWithModule($todayStats, $requestedCrsd);
             $todayResult  = $todayStats->first();
             $todayOrders  = (int) ($todayResult->orders ?? 0);
             $todayRevenue = (int) ($todayResult->revenue ?? 0);
@@ -430,7 +430,7 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as total_revenue
             ')->whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd]);
 
-            $previousStats         = $this->applyCRSDFilterWithModule($previousStats, $requestedCrsd); // FIX
+            $previousStats         = $this->applyCRSDFilterWithModule($previousStats, $requestedCrsd);
             $previousResult        = $previousStats->first();
             $previousPeriodRevenue = (int) ($previousResult->total_revenue ?? 0);
             $previousPeriodOrders  = (int) ($previousResult->total_orders ?? 0);
@@ -455,7 +455,7 @@ class AdminController extends Controller
                 SUM(CASE WHEN status = "paid" THEN total_price ELSE 0 END) as revenue
             ')->whereBetween('created_at', [$startDate, $endDate]);
 
-            $chartQuery      = $this->applyCRSDFilterWithModule($chartQuery, $requestedCrsd); // FIX
+            $chartQuery      = $this->applyCRSDFilterWithModule($chartQuery, $requestedCrsd);
             $chartResults    = $chartQuery->groupBy(DB::raw('DATE(created_at)'))->orderBy('date')->get();
             $chartResultsMap = $chartResults->keyBy('date');
 
@@ -573,7 +573,7 @@ class AdminController extends Controller
                 ->where('order_status', 'completed')
                 ->where('status', 'paid');
 
-            $baseQuery = $this->applyCRSDFilterWithModule($baseQuery, $crsdType); // FIX
+            $baseQuery = $this->applyCRSDFilterWithModule($baseQuery, $crsdType);
 
             if ($request->has('area_id') && $request->area_id !== 'all') {
                 $areaId = $request->area_id;
@@ -717,13 +717,14 @@ class AdminController extends Controller
                 return $this->errorResponse('Format tanggal tidak valid', 400);
             }
 
-            $query = Orders::with(['user', 'items.menu'])
+            
+            $query = Orders::with(['user', 'items.menu.restaurant.area'])
                 ->whereBetween('created_at', [$startDate, $endDate])
                 ->where('order_status', 'completed')
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc');
 
-            $query = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
+            $query = $this->applyCRSDFilterWithModule($query, $crsdType);
 
             if ($request->has('search')) {
                 $search = $request->search;
@@ -760,18 +761,33 @@ class AdminController extends Controller
                 $ordersByDate[$date]['total_orders'] += 1;
                 $totalRevenue += $orderTotal;
 
+                $firstRestaurant = null;
+                $firstArea       = null;
+                foreach ($order->items as $item) {
+                    if ($item->menu && $item->menu->restaurant) {
+                        $firstRestaurant = $item->menu->restaurant;
+                        $firstArea       = $item->menu->restaurant->area ?? null;
+                        break;
+                    }
+                }
+
                 $orderData = [
-                    'order_id'       => $order->id,
-                    'order_number'   => $order->order_code ?? 'ORD-' . $order->id,
-                    'customer'       => $order->user->name ?? 'Guest',
-                    'order_status'   => $order->order_status,
-                    'payment_status' => $order->status,
-                    'items'          => $order->items->map(function ($item) {
+                    'order_id'        => $order->id,
+                    'order_number'    => $order->order_code ?? 'ORD-' . $order->id,
+                    'customer'        => $order->user->name ?? 'Guest',
+                    'order_status'    => $order->order_status,
+                    'payment_status'  => $order->status,
+                    'restaurant_name' => $firstRestaurant ? $firstRestaurant->name : '-',
+                    'area_name'       => $firstArea ? $firstArea->name : '-',            
+                    'area_icon'       => $firstArea ? ($firstArea->icon ?? '📍') : '📍', 
+                    'notes'           => $order->notes,
+                    'items'           => $order->items->map(function ($item) {
                         return [
                             'name'     => $item->menu?->name ?? 'Unknown Product',
                             'quantity' => (int) $item->quantity,
                             'price'    => (int) $item->price,
-                            'subtotal' => (int) $item->quantity * (int) $item->price
+                            'subtotal' => (int) $item->quantity * (int) $item->price,
+                            'notes'    => $item->notes,
                         ];
                     })->toArray(),
                     'total'      => $orderTotal,
@@ -854,7 +870,7 @@ class AdminController extends Controller
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc');
 
-            $query  = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
+            $query  = $this->applyCRSDFilterWithModule($query, $crsdType);
             $orders = $query->get();
 
             if ($orders->isEmpty()) {
@@ -889,14 +905,14 @@ class AdminController extends Controller
             ];
 
             return response()->json([
-                'success'      => true,
-                'message'      => 'Export data ready',
-                'data'         => [
+                'success'     => true,
+                'message'     => 'Export data ready',
+                'data'        => [
                     'summary' => $summaryData,
                     'orders'  => $exportData,
                 ],
-                'export_type'  => $exportType,
-                'filename'     => 'orders_export_' . $startDate->format('Ymd') . '_to_' . $endDate->format('Ymd') . '.json',
+                'export_type' => $exportType,
+                'filename'    => 'orders_export_' . $startDate->format('Ymd') . '_to_' . $endDate->format('Ymd') . '.json',
                 'download_url' => $exportType === 'excel'
                     ? url("/api/admin/export/excel?start_date={$startDateInput}&end_date={$endDateInput}")
                     : null
@@ -928,18 +944,18 @@ class AdminController extends Controller
 
             if (count($crsdTypes) > 1) {
                 return response()->json([
-                    'success'                  => true,
-                    'requires_selection'       => true,
+                    'success'                   => true,
+                    'requires_selection'        => true,
                     'requires_module_selection' => true,
-                    'available_modules'        => $crsdTypes
+                    'available_modules'         => $crsdTypes
                 ], 200);
             }
 
             return response()->json([
-                'success'                  => true,
-                'requires_selection'       => false,
+                'success'                   => true,
+                'requires_selection'        => false,
                 'requires_module_selection' => false,
-                'available_modules'        => $crsdTypes
+                'available_modules'         => $crsdTypes
             ], 200);
 
         } catch (\Exception $e) {
@@ -1023,7 +1039,7 @@ class AdminController extends Controller
                 'items.menu.restaurant.area'
             ])->orderBy('created_at', 'desc');
 
-            $query = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
+            $query = $this->applyCRSDFilterWithModule($query, $crsdType);
 
             if ($request->has('status') && $request->status !== 'all') {
                 $query->where('order_status', $request->status);
@@ -1696,7 +1712,7 @@ class AdminController extends Controller
                 ->where('status', 'paid')
                 ->orderBy('created_at', 'desc');
 
-            $query  = $this->applyCRSDFilterWithModule($query, $crsdType); // FIX
+            $query  = $this->applyCRSDFilterWithModule($query, $crsdType);
             $orders = $query->get();
 
             if ($orders->isEmpty()) {
