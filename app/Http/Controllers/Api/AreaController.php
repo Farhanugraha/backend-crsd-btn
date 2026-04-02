@@ -68,11 +68,10 @@ class AreaController extends Controller
     public function show($id)
     {
         try {
-               $area = Area::active()
-            ->with(['restaurants' => function ($query) {
+            $area = Area::with(['restaurants' => function ($query) {
                 $query->where('is_open', true)
                     ->withCount('menus');
-            }])->findOrFail($id); 
+            }])->findOrFail($id);
 
             return response()->json([
                 'success' => true,
