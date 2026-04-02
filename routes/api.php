@@ -126,6 +126,10 @@ Route::prefix('areas')->group(function () {
         Route::put('{id}', [AreaController::class, 'update'])
             ->whereNumber('id')
             ->name('areas.update');
+
+        Route::patch('{id}/toggle-active', [AreaController::class, 'toggleActive'])
+            ->whereNumber('id')
+            ->name('areas.toggleActive');
         
         Route::delete('{id}', [AreaController::class, 'destroy'])
             ->whereNumber('id')
