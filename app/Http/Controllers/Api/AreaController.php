@@ -17,8 +17,9 @@ class AreaController extends Controller
     public function index()
     {
         try {
-            $areas = Area::withCount('restaurants')
-                ->orderBy('order', 'asc')
+            $areas = Area::active()
+                ->withCount('restaurants')
+                ->orderBy('order','asc')
                 ->get();
 
             return response()->json([
@@ -131,7 +132,8 @@ class AreaController extends Controller
             'slug' => 'nullable|string|max:255|unique:areas,slug',
             'description' => 'nullable|string',
             'icon' => 'nullable|string|max:255',
-            'order' => 'nullable|integer|min:0'
+            'order' => 'nullable|integer|min:0',
+            'is_active' => 'nullable|boolean'
         ]);
 
         if ($validator->fails()) {
@@ -177,7 +179,8 @@ class AreaController extends Controller
             'slug' => 'nullable|string|max:255|unique:areas,slug,' . $id,
             'description' => 'nullable|string',
             'icon' => 'nullable|string|max:255',
-            'order' => 'nullable|integer|min:0'
+            'order' => 'nullable|integer|min:0',
+            'is_active'=> 'nullable|boolean' 
         ]);
 
         if ($validator->fails()) {
@@ -240,6 +243,26 @@ class AreaController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to delete area',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function toggleActive($id) {
+        try {
+            $area = Area::findOrFail($id);
+            $area->update(['is_active' => !$area->is_active]);
+
+
+            return response()->json([
+                'succes' => true,
+                'message' => 'Area ' . ($area->is_active ? 'activated' : 'deactivated'),
+                'data' => $area
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'succes' => false,
+                'message' => 'Failed to toggle area status',
                 'error' => $e->getMessage()
             ], 500);
         }

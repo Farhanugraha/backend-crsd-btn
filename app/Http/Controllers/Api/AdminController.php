@@ -795,6 +795,7 @@ class AdminController extends Controller
                 ];
 
                 $ordersByDate[$date]['orders'][] = $orderData;
+                
             }
 
             $formattedOrdersByDate = [];

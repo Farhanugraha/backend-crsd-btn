@@ -15,24 +15,21 @@ class Area extends Model
         'slug',
         'description',
         'icon',
-        'order'
+        'order',
+        'is_active',
     ];
 
     protected $casts = [
-        'order' => 'integer'
+        'order' => 'integer',
+        'is_active' => 'boolean'
     ];
 
-    /**
-     * Relationship: 1 Area has many Restaurants
-     */
+
     public function restaurants()
     {
         return $this->hasMany(Restaurant::class);
     }
 
-    /**
-     * Auto generate slug from name
-     */
     protected static function boot()
     {
         parent::boot();
@@ -48,5 +45,10 @@ class Area extends Model
                 $area->slug = Str::slug($area->name);
             }
         });
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true);
     }
 }
