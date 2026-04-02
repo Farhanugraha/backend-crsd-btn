@@ -276,17 +276,18 @@ class AreaController extends Controller
     public function toggleActive($id) {
         try {
             $area = Area::findOrFail($id);
-            $area->update(['is_active' => !$area->is_active]);
-
-
+            $newStatus = !$area->is_active;
+            $area->update(['is_active' => $newStatus]);
+            $area->refresh(); 
+            
             return response()->json([
-                'succes' => true,
-                'message' => 'Area ' . ($area->is_active ? 'activated' : 'deactivated'),
-                'data' => $area
+                'success' => true,
+                'message' => 'Area ' . ($area->is_active ? 'activated' : 'deactivated') . ' successfully',
+                'data' => $area  
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'succes' => false,
+                'success' => false,
                 'message' => 'Failed to toggle area status',
                 'error' => $e->getMessage()
             ], 500);
