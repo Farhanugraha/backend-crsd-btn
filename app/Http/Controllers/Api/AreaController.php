@@ -37,6 +37,31 @@ class AreaController extends Controller
     }
 
     /**
+     * Display ALL areas including inactive (Superadmin only)
+     * GET /api/areas/all
+     */
+    public function indexAll()
+    {
+        try {
+            $areas = Area::withCount('restaurants')
+                ->orderBy('order', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'All areas retrieved successfully',
+                'data' => $areas
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve areas',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Display a specific area with restaurants (Public)
      * GET /api/areas/{id}
      */

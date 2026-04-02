@@ -120,6 +120,9 @@ Route::prefix('areas')->group(function () {
     
     // Superadmin only routes
     Route::middleware(['auth:api', 'role:superadmin'])->group(function () {
+        Route::get('all', [AreaController::class, 'indexAll'])
+        ->name('areas.indexAll');
+        
         Route::post('', [AreaController::class, 'store'])
             ->name('areas.store');
         
